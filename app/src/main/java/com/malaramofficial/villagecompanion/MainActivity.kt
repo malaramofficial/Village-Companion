@@ -13,14 +13,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -174,7 +176,12 @@ fun VillageCompanionApp() {
 @Composable
 private fun HomeScreen(onProvider: () -> Unit, onCategory: (Category) -> Unit) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -210,27 +217,30 @@ private fun HomeScreen(onProvider: () -> Unit, onCategory: (Category) -> Unit) {
         }
 
         Text("लोकप्रिय सेवाएँ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier.fillMaxWidth().height(390.dp),
-            contentPadding = PaddingValues(2.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(categories) { category ->
-                Card(
-                    Modifier.fillMaxWidth().clickable { onCategory(category) },
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text(category.emoji, style = MaterialTheme.typography.headlineSmall)
-                        Spacer(Modifier.height(6.dp))
-                        Text(category.title, fontWeight = FontWeight.SemiBold)
-                        Text(category.subtitle, style = MaterialTheme.typography.bodySmall)
+
+        // Responsive 2-column layout: no nested LazyVerticalGrid and no fixed height.
+        categories.chunked(2).forEach { rowItems ->
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                rowItems.forEach { category ->
+                    Card(
+                        Modifier.weight(1f).clickable { onCategory(category) },
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(category.emoji, style = MaterialTheme.typography.headlineSmall)
+                            Spacer(Modifier.height(6.dp))
+                            Text(category.title, fontWeight = FontWeight.SemiBold)
+                            Text(category.subtitle, style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
+                if (rowItems.size == 1) Spacer(Modifier.weight(1f))
             }
         }
+
         Text("सेवा चुनें → उपलब्ध लोग देखें → सीधे संपर्क करें।")
     }
 }
@@ -248,7 +258,13 @@ private fun ProviderRegistrationScreen(onBack: () -> Unit, onSaved: () -> Unit) 
     var saved by remember { mutableStateOf(false) }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         TextButton(onClick = onBack) { Text("← वापस") }
@@ -321,7 +337,12 @@ private fun ServiceResultsScreen(category: Category, onBack: () -> Unit) {
     val filtered = allProviders.filter { it.service == category.title && (village == "मेरा गाँव" || it.village == village) }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         OutlinedButton(onClick = onBack) { Text("← वापस") }
