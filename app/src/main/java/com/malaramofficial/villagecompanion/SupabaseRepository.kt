@@ -19,7 +19,7 @@ data class SupabaseServiceRow(
  */
 object SupabaseRepository {
     suspend fun getActiveServices(): List<SupabaseServiceRow> {
-        return supabase.postgrest
+        return supabase
             .from("services")
             .select {
                 filter {
