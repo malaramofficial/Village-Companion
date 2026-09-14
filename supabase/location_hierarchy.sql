@@ -34,19 +34,24 @@ create index if not exists idx_blocks_district_id on public.blocks(district_id);
 create index if not exists idx_gram_panchayats_block_id on public.gram_panchayats(block_id);
 create index if not exists idx_villages_gram_panchayat_id on public.villages(gram_panchayat_id);
 
+-- The location catalogue is public read-only data.
+-- Explicit grants are required for newer Supabase Data API projects.
+grant usage on schema public to anon, authenticated;
+grant select on table public.districts, public.blocks, public.gram_panchayats, public.villages to anon, authenticated;
+
 alter table public.districts enable row level security;
 alter table public.blocks enable row level security;
 alter table public.gram_panchayats enable row level security;
 alter table public.villages enable row level security;
 
 drop policy if exists "public read active districts" on public.districts;
-create policy "public read active districts" on public.districts for select using (active = true);
+create policy "public read active districts" on public.districts for select to anon, authenticated using (active = true);
 drop policy if exists "public read active blocks" on public.blocks;
-create policy "public read active blocks" on public.blocks for select using (active = true);
+create policy "public read active blocks" on public.blocks for select to anon, authenticated using (active = true);
 drop policy if exists "public read active gram panchayats" on public.gram_panchayats;
-create policy "public read active gram panchayats" on public.gram_panchayats for select using (active = true);
+create policy "public read active gram panchayats" on public.gram_panchayats for select to anon, authenticated using (active = true);
 drop policy if exists "public read active villages" on public.villages;
-create policy "public read active villages" on public.villages for select using (is_active = true);
+create policy "public read active villages" on public.villages for select to anon, authenticated using (is_active = true);
 
 -- Current Barmer district and its 11 current blocks.
 insert into public.districts (name, active)
@@ -124,6 +129,9 @@ join public.gram_panchayats gp on gp.name = dta.gp_name
 join public.blocks b on b.id = gp.block_id
 join public.districts d on d.id = b.district_id and d.name = 'Barmer'
 on conflict (name, district, state) do update set block_id = excluded.block_id, gram_panchayat_id = excluded.gram_panchayat_id, is_active = true;
+
+-- Refresh PostgREST schema metadata after the migration.
+notify pgrst, 'reload schema';
 
 select 'location hierarchy ready' as status,
        (select count(*) from public.blocks b join public.districts d on d.id=b.district_id where d.name='Barmer') as blocks,
