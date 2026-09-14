@@ -1,69 +1,60 @@
--- Village Companion — Barmer district location hierarchy
--- V1 scope: entire current Barmer district.
--- Aadel Panchayat Samiti GP list is seeded for the first location-selection release.
--- Village rows below are only the village mappings that have been manually verified for this release.
+-- Village Companion location hierarchy migration/seed
+-- Run this file in Supabase SQL Editor after schema.sql.
 
 create table if not exists public.districts (
     id uuid primary key default gen_random_uuid(),
-    name text not null,
-    state text not null default 'Rajasthan',
-    lgd_code bigint,
-    is_active boolean not null default true,
-    created_at timestamptz not null default now(),
-    unique (name, state), unique (lgd_code)
+    name text not null unique,
+    active boolean not null default true,
+    created_at timestamptz not null default now()
 );
 
 create table if not exists public.blocks (
     id uuid primary key default gen_random_uuid(),
     district_id uuid not null references public.districts(id) on delete cascade,
     name text not null,
-    lgd_code bigint,
-    is_active boolean not null default true,
+    active boolean not null default true,
     created_at timestamptz not null default now(),
-    unique (district_id, name), unique (lgd_code)
+    unique (district_id, name)
 );
 
 create table if not exists public.gram_panchayats (
     id uuid primary key default gen_random_uuid(),
     block_id uuid not null references public.blocks(id) on delete cascade,
     name text not null,
-    is_active boolean not null default true,
+    active boolean not null default true,
     created_at timestamptz not null default now(),
     unique (block_id, name)
 );
 
 alter table public.villages add column if not exists block_id uuid references public.blocks(id) on delete set null;
 alter table public.villages add column if not exists gram_panchayat_id uuid references public.gram_panchayats(id) on delete set null;
-alter table public.villages add column if not exists lgd_code bigint;
+alter table public.villages add column if not exists lgd_code text;
 
-create unique index if not exists uq_villages_lgd_code on public.villages(lgd_code) where lgd_code is not null;
-create index if not exists idx_blocks_district on public.blocks(district_id) where is_active = true;
-create index if not exists idx_gram_panchayats_block on public.gram_panchayats(block_id) where is_active = true;
-create index if not exists idx_villages_block on public.villages(block_id) where is_active = true;
-create index if not exists idx_villages_gram_panchayat on public.villages(gram_panchayat_id) where is_active = true;
+create index if not exists idx_blocks_district_id on public.blocks(district_id);
+create index if not exists idx_gram_panchayats_block_id on public.gram_panchayats(block_id);
+create index if not exists idx_villages_gram_panchayat_id on public.villages(gram_panchayat_id);
 
 alter table public.districts enable row level security;
 alter table public.blocks enable row level security;
 alter table public.gram_panchayats enable row level security;
+alter table public.villages enable row level security;
 
 drop policy if exists "public read active districts" on public.districts;
-create policy "public read active districts" on public.districts for select to anon, authenticated using (is_active = true);
-
+create policy "public read active districts" on public.districts for select using (active = true);
 drop policy if exists "public read active blocks" on public.blocks;
-create policy "public read active blocks" on public.blocks for select to anon, authenticated using (is_active = true);
-
+create policy "public read active blocks" on public.blocks for select using (active = true);
 drop policy if exists "public read active gram panchayats" on public.gram_panchayats;
-create policy "public read active gram panchayats" on public.gram_panchayats for select to anon, authenticated using (is_active = true);
-
+create policy "public read active gram panchayats" on public.gram_panchayats for select using (active = true);
 drop policy if exists "public read active villages" on public.villages;
-create policy "public read active villages" on public.villages for select to anon, authenticated using (is_active = true);
+create policy "public read active villages" on public.villages for select using (active = true);
 
-insert into public.districts (name, state)
-values ('Barmer', 'Rajasthan')
-on conflict (name, state) do nothing;
+-- Current Barmer district and its 11 current blocks.
+insert into public.districts (name, active)
+values ('Barmer', true)
+on conflict (name) do update set active = true;
 
-insert into public.blocks (district_id, name)
-select d.id, b.name
+insert into public.blocks (district_id, name, active)
+select d.id, v.name, true
 from public.districts d
 cross join (values
     ('Aadel'),
@@ -77,27 +68,27 @@ cross join (values
     ('Ramsar'),
     ('Sedwa'),
     ('Sheo')
-) as b(name)
-where d.name = 'Barmer' and d.state = 'Rajasthan'
-on conflict (district_id, name) do nothing;
+) as v(name)
+where d.name = 'Barmer'
+on conflict (district_id, name) do update set active = true;
 
--- Aadel Panchayat Samiti: 20 Gram Panchayats.
-insert into public.gram_panchayats (block_id, name)
-select b.id, gp.name
+-- Aadel gram panchayats represented in the currently validated V1 village data.
+insert into public.gram_panchayats (block_id, name, active)
+select b.id, v.name, true
 from public.blocks b
+join public.districts d on d.id = b.district_id
 cross join (values
-    ('AASUON KI DHANI'),
-    ('ADARSH ADEL'),
-    ('ARJUN KI DHANI'),
-    ('BHAMBHU NAGAR'),
-    ('DHOLPALIYA NADA'),
-    ('KHARDI BERI'),
-    ('KHARIYA KHURD'),
-    ('MEETHI BERI'),
-    ('SADECHA'),
+    ('Aasuon Ki Dhani'),
+    ('Adarsh Adel'),
+    ('Arjun Ki Dhani'),
+    ('Bhambhu Nagar'),
+    ('Dholpaliya Nada'),
+    ('Khardi Beri'),
+    ('Khariya Khurd'),
+    ('Meethi Beri'),
+    ('Sadecha'),
     ('अणखिया'),
     ('आडेल'),
-    ('गोलिया जैतमाल'),
     ('छोटु'),
     ('धोलानाडा'),
     ('निम्बलकोट'),
@@ -106,150 +97,35 @@ cross join (values
     ('मालपुरा'),
     ('मंगले की बेरी'),
     ('राणासर खुर्द')
-) as gp(name)
-where b.name = 'Aadel'
-on conflict (block_id, name) do nothing;
+) as v(name)
+where d.name = 'Barmer' and b.name = 'Aadel'
+on conflict (block_id, name) do update set active = true;
 
--- ---------------------------------------------------------
--- Verified village mappings supplied for the first data batch.
--- No LGD code is invented here; codes can be added after LGD import.
--- ---------------------------------------------------------
-with village_seed(gp_name, village_name) as (
+-- User-validated V1 villages. Names are kept as supplied for reliable display.
+with data(gp_name, village_name) as (
     values
-    -- Aasuon Ki Dhani
-    ('AASUON KI DHANI', 'आसुओं की ढाणी'),
-    ('AASUON KI DHANI', 'भाम्भुओं की बेरी'),
-    ('AASUON KI DHANI', 'ढेलाणी नाडी'),
-    ('AASUON KI DHANI', 'गोदारों की बेरी'),
-
-    -- Arjun Ki Dhani
-    ('ARJUN KI DHANI', 'आदर्श छोटू'),
-    ('ARJUN KI DHANI', 'अर्जुन की ढाणी'),
-    ('ARJUN KI DHANI', 'बलदेव नगर'),
-    ('ARJUN KI DHANI', 'भोमाणी कड़वासरों की ढाणी'),
-    ('ARJUN KI DHANI', 'ईड छोटू'),
-    ('ARJUN KI DHANI', 'खाणिया'),
-    ('ARJUN KI DHANI', 'नवला सर'),
-    ('ARJUN KI DHANI', 'पीराणी गोदारों की ढाणी'),
-    ('ARJUN KI DHANI', 'उदय नगर'),
-    ('ARJUN KI DHANI', 'विजय नगर'),
-
-    -- Dholpaliya Nada
-    ('DHOLPALIYA NADA', 'भीलों का गोल'),
-    ('DHOLPALIYA NADA', 'धोलपालिया नाडा'),
-    ('DHOLPALIYA NADA', 'लक्ष्मणनगर'),
-    ('DHOLPALIYA NADA', 'सिद्धोनियों खोतों की ढाणी'),
-
-    -- Khardi Beri
-    ('KHARDI BERI', 'आधतरा'),
-    ('KHARDI BERI', 'आडेल पांजी'),
-    ('KHARDI BERI', 'आडेल शिवनगर @ पेमा की बेरी'),
-    ('KHARDI BERI', 'बाटेरों की बेरी'),
-    ('KHARDI BERI', 'जेठासर'),
-    ('KHARDI BERI', 'कनाणी धाकों की ढाणी'),
-    ('KHARDI BERI', 'खड़री बेरी'),
-    ('KHARDI BERI', 'सादुल नगर'),
-
-    -- Khariya Khurd
-    ('KHARIYA KHURD', 'बनानियों की बेरी'),
-    ('KHARIYA KHURD', 'भूरासर'),
-    ('KHARIYA KHURD', 'चोरलिया नाडा'),
-    ('KHARIYA KHURD', 'धन्नाणी कुम्हारों की ढाणी'),
-    ('KHARIYA KHURD', 'गंगापुरा'),
-    ('KHARIYA KHURD', 'खारिया खुर्द'),
-    ('KHARIYA KHURD', 'खूबड़ माता मंदिर'),
-    ('KHARIYA KHURD', 'किशनपुरा'),
-    ('KHARIYA KHURD', 'मेघवालों की ढाणी'),
-    ('KHARIYA KHURD', 'तारड़ नगर'),
-
-    -- Meethi Beri
-    ('MEETHI BERI', 'बाकाणी सारणों की ढाणी'),
-    ('MEETHI BERI', 'डाऊकियों की ढाणी'),
-    ('MEETHI BERI', 'कूकाणों की ढाणियां'),
-    ('MEETHI BERI', 'लोहमरोड़ एंड नानोन की ढाणी'),
-    ('MEETHI BERI', 'मीठी बेरी'),
-    ('MEETHI BERI', 'राजनगर'),
-    ('MEETHI BERI', 'सारणों एंड सेवारों की ढाणी'),
-    ('MEETHI BERI', 'थोरियों की ढाणी'),
-    ('MEETHI BERI', 'विश्वकर्मा नगर'),
-
-    -- Sadecha
-    ('SADECHA', 'बुधराणी हूडों की ढाणी'),
-    ('SADECHA', 'करमी नगर'),
-    ('SADECHA', 'पनाणी धातरवालों की ढाणी'),
-    ('SADECHA', 'रूपनगर'),
-    ('SADECHA', 'सडेचा'),
-    ('SADECHA', 'शिवनगर सडेचा'),
-    ('SADECHA', 'उत्तम नगर'),
-
-    -- Chhotu
-    ('छोटु', 'बेहणोनी सारणों की ढाणी'),
-    ('छोटु', 'छोटु'),
-    ('छोटु', 'गोगाजी का मंदिर छोटु'),
-    ('छोटु', 'झरड़ासर'),
-    ('छोटु', 'झूरड़ों की ढाणी'),
-    ('छोटु', 'महादेव मंदिर'),
-    ('छोटु', 'पोखरासर'),
-    ('छोटु', 'सांवलसर'),
-
-    -- Malpura
-    ('मालपुरा', 'हीरपुरा'),
-    ('मालपुरा', 'हुकमाणी खोतों की ढाणी'),
-    ('मालपुरा', 'मालपुरा'),
-    ('मालपुरा', 'थोरियों का तला'),
-
-    -- Mangle Ki Beri
-    ('मंगले की बेरी', 'अम्बेडकर नगर'),
-    ('मंगले की बेरी', 'धन्ने भील की ढाणी'),
-    ('मंगले की बेरी', 'गाढ़ेर मघवालों की ढाणी'),
-    ('मंगले की बेरी', 'खुमोणी बेनीवालों की ढाणी'),
-    ('मंगले की बेरी', 'मंगले की बेरी'),
-    ('मंगले की बेरी', 'नया कुआ'),
-    ('मंगले की बेरी', 'राडों एंड कुम्हारों की ढाणी'),
-    ('मंगले की बेरी', 'रामनगर'),
-    ('मंगले की बेरी', 'तेजासर'),
-    ('मंगले की बेरी', 'वागोणी धातरवालों की ढाणी'),
-    ('मंगले की बेरी', 'वांकलसर'),
-
-    -- Nimbalkot
-    ('निम्बलकोट', 'भेराराम मूंढ नगर'),
-    ('निम्बलकोट', 'डोलोणी सियागों का तला'),
-    ('निम्बलकोट', 'लाखोणी गोदारों की ढाणी'),
-    ('निम्बलकोट', 'लाखोणी मेघवालों की ढाणी'),
-    ('निम्बलकोट', 'नीम्बल कोट'),
-    ('निम्बलकोट', 'नीम्बल नाडी'),
-    ('निम्बलकोट', 'सियागों की ढाणी चक नं. 1'),
-
-    -- Nokhra
-    ('नोखड़ा', 'आदर्श नोखड़ा'),
-    ('नोखड़ा', 'भोमाणी मेघवालों की ढाणी'),
-    ('नोखड़ा', 'गुरुओं का तला'),
-    ('नोखड़ा', 'हीरा नगर'),
-    ('नोखड़ा', 'जगराम की ढाणी'),
-    ('नोखड़ा', 'एन.टी. नगर'),
-    ('नोखड़ा', 'नेहरों का तला'),
-    ('नोखड़ा', 'नोखड़ा'),
-    ('नोखड़ा', 'सालगासर')
+    ('Aasuon Ki Dhani','Aasuon Ki Dhani'),('Aasuon Ki Dhani','Bhabhuon Ki Beri'),('Aasuon Ki Dhani','Dhelani Nadi'),('Aasuon Ki Dhani','Godaron Ki Beri'),
+    ('Arjun Ki Dhani','Adarsh Chhotu'),('Arjun Ki Dhani','Arjun Ki Dhani'),('Arjun Ki Dhani','Baldev Nagar'),('Arjun Ki Dhani','Bhomani Kadwasaron Ki Dhani'),('Arjun Ki Dhani','Ed Chhotu'),('Arjun Ki Dhani','Khaniya'),('Arjun Ki Dhani','Navlasar'),('Arjun Ki Dhani','Peerani Godaron Ki Dhani'),('Arjun Ki Dhani','Udai Nagar'),('Arjun Ki Dhani','Vijai Nagar'),
+    ('Dholpaliya Nada','Bhilon Ka Gol'),('Dholpaliya Nada','Dholpaliya Nada'),('Dholpaliya Nada','Laxmannagar'),('Dholpaliya Nada','Siddhoniyo Khotho Ki Dhani'),
+    ('Khardi Beri','Aadhtara'),('Khardi Beri','Adel Panji'),('Khardi Beri','Adel Shivnagar @ Peme Ki Beri'),('Khardi Beri','Bateron Ki Beri'),('Khardi Beri','Jethasar'),('Khardi Beri','Kanani Dhakon Ki Dhani'),('Khardi Beri','Khardi Beri'),('Khardi Beri','Sadul Nagar'),
+    ('Khariya Khurd','Bananiyon Ki Beri'),('Khariya Khurd','Bhurasar'),('Khariya Khurd','Choraliya Nada'),('Khariya Khurd','Dhannani Kumharo Ki Dhani'),('Khariya Khurd','Gangapura'),('Khariya Khurd','Khariya Khurd'),('Khariya Khurd','Khubad Mata Mandir'),('Khariya Khurd','Kishanpura'),('Khariya Khurd','Meghwalon Ki Dhani'),('Khariya Khurd','Tarad Nagar'),
+    ('Meethi Beri','Bakani Sarnon Ki Dhani'),('Meethi Beri','Daukiyon Ki Dhani'),('Meethi Beri','Kookano Ki Dhaniyan'),('Meethi Beri','Lohamroad And Nanon Ki Dhani'),('Meethi Beri','Meethi Beri'),('Meethi Beri','Rajnagar'),('Meethi Beri','Sarnon And Sewaron Ki Dhani'),('Meethi Beri','Thoriyon Ki Dhani'),('Meethi Beri','Visvakarma Nagar'),
+    ('Sadecha','Budhrani Hudon Ki Dhani'),('Sadecha','Karminagar'),('Sadecha','Panani Dhatarwalon Ki Dhani'),('Sadecha','Rupnagar'),('Sadecha','Sadecha'),('Sadecha','Shivnagar Sadecha'),('Sadecha','Utam Nagar'),
+    ('छोटु','Behanoni Saranon Ki Dhani'),('छोटु','Chhotu'),('छोटु','Gogaji Ka Mandir Chhotu'),('छोटु','Jhardasar'),('छोटु','Jhurdo Ki Dhani'),('छोटु','Mahadeo Mandir'),('छोटु','Pokrasar'),('छोटु','Sanwalsar'),
+    ('मालपुरा','Heerpura'),('मालपुरा','Hukmani Khoton Ki Dhani'),('मालपुरा','Malpura'),('मालपुरा','Thoriyon Ka Tala'),
+    ('मंगले की बेरी','Ambedkar Nagar'),('मंगले की बेरी','Dhanne Bhil Ki Dhani'),('मंगले की बेरी','Gadher Magwalo Ki Dhani'),('मंगले की बेरी','Khumoni Beniwalon Ki Dhani'),('मंगले की बेरी','Mangle Ki Beri'),('मंगले की बेरी','Naya Kua'),('मंगले की बेरी','Radon And Kumharo Ki Dhani'),('मंगले की बेरी','Ramnagar'),('मंगले की बेरी','Tejasar'),('मंगले की बेरी','Vagoni Dhatarwalon Ki Dhani'),('मंगले की बेरी','Wankalsar'),
+    ('निम्बलकोट','Bheraram Moondh Nagar'),('निम्बलकोट','Doloni Siyago Ka Tala'),('निम्बलकोट','Lakhoni Godaron Ki Dhani'),('निम्बलकोट','Lakhoni Megwalon Ki Dhani'),('निम्बलकोट','Neembal Kot'),('निम्बलकोट','Neembal Nadi'),('निम्बलकोट','Siyagon Ki Dhani Chak No1'),
+    ('नोखड़ा','Adarsh Nokhra'),('नोखड़ा','Bhomani Meghwalon Ki Dhani'),('नोखड़ा','Guruon Ka Tala'),('नोखड़ा','Hira Nagar'),('नोखड़ा','Jagram Ki Dhani'),('नोखड़ा','N.T. Nagar'),('नोखड़ा','Nehron Ka Tala'),('नोखड़ा','Nokhra'),('नोखड़ा','Salgasar')
 )
-insert into public.villages (name, district, state, block_id, gram_panchayat_id)
-select
-    vs.village_name,
-    'Barmer',
-    'Rajasthan',
-    b.id,
-    gp.id
-from village_seed vs
-join public.gram_panchayats gp on gp.name = vs.gp_name
+insert into public.villages (name, district, state, block_id, gram_panchayat_id, active)
+select dta.village_name, 'Barmer', 'Rajasthan', b.id, gp.id, true
+from data dta
+join public.gram_panchayats gp on gp.name = dta.gp_name
 join public.blocks b on b.id = gp.block_id
-where b.name = 'Aadel'
-on conflict (name, district, state) do update set
-    block_id = excluded.block_id,
-    gram_panchayat_id = excluded.gram_panchayat_id,
-    is_active = true;
+join public.districts d on d.id = b.district_id and d.name = 'Barmer'
+on conflict (name, district, state) do update set block_id = excluded.block_id, gram_panchayat_id = excluded.gram_panchayat_id, active = true;
 
-comment on table public.districts is 'V1 location scope: entire current Barmer district, Rajasthan.';
-comment on table public.blocks is 'V1 scope: current Barmer development blocks.';
-comment on table public.gram_panchayats is 'Aadel Gram Panchayat selection list seeded from the current available Aadel GP listing.';
-comment on column public.villages.block_id is 'Block mapping for the location hierarchy.';
-comment on column public.villages.gram_panchayat_id is 'Gram Panchayat mapping for verified village seed rows.';
-comment on column public.villages.lgd_code is 'LGD village code where available; not guessed.';
+select 'location hierarchy ready' as status,
+       (select count(*) from public.blocks b join public.districts d on d.id=b.district_id where d.name='Barmer') as blocks,
+       (select count(*) from public.gram_panchayats gp join public.blocks b on b.id=gp.block_id join public.districts d on d.id=b.district_id where d.name='Barmer' and b.name='Aadel') as gram_panchayats,
+       (select count(*) from public.villages where district='Barmer' and gram_panchayat_id is not null) as villages;
