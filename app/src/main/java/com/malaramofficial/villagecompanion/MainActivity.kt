@@ -63,7 +63,6 @@ private data class Provider(
     val village: String,
     val service: String,
     val availability: String,
-    val rating: String,
     val phone: String? = null
 )
 
@@ -77,9 +76,9 @@ private val categories = listOf(
 )
 
 private val demoProviders = listOf(
-    Provider("रामलाल", "मीठी बेरी", "कृषि मजदूर", "आज उपलब्ध", "4.8 ★"),
-    Provider("हनुमान राम", "नोकड़ा", "Tractor / मशीन", "अभी उपलब्ध", "4.7 ★"),
-    Provider("मोहनलाल", "डऊकीयो की ढाणी", "Electrician", "आज उपलब्ध", "4.9 ★")
+    Provider("रामलाल", "मीठी बेरी", "कृषि मजदूर", "आज उपलब्ध"),
+    Provider("हनुमान राम", "नोकड़ा", "Tractor / मशीन", "अभी उपलब्ध"),
+    Provider("मोहनलाल", "डऊकीयो की ढाणी", "Electrician", "आज उपलब्ध")
 )
 
 private const val PREFS = "village_companion_provider"
@@ -101,7 +100,7 @@ private fun loadSavedProvider(context: Context): Provider? {
     val service = prefs.getString("service", null)?.takeIf { it.isNotBlank() } ?: return null
     val phone = prefs.getString("phone", null)?.takeIf { it.isNotBlank() }
     val available = prefs.getBoolean("available", true)
-    return Provider(name, village, service, if (available) "अभी उपलब्ध" else "अभी उपलब्ध नहीं", "नई ★", phone)
+    return Provider(name, village, service, if (available) "अभी उपलब्ध" else "अभी उपलब्ध नहीं", phone)
 }
 
 private fun showActionError(context: Context, message: String) {
@@ -295,7 +294,7 @@ private fun ProviderRegistrationScreen(onBack: () -> Unit, onSaved: () -> Unit) 
                     if (error.isBlank()) {
                         saveProvider(
                             context,
-                            Provider(name.trim(), village.trim(), selectedService!!.title, if (available) "अभी उपलब्ध" else "अभी उपलब्ध नहीं", "नई ★", phone)
+                            Provider(name.trim(), village.trim(), selectedService!!.title, if (available) "अभी उपलब्ध" else "अभी उपलब्ध नहीं", phone)
                         )
                         saved = true
                     }
@@ -351,10 +350,7 @@ private fun ProviderCard(provider: Provider) {
     val hasPhone = !provider.phone.isNullOrBlank()
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(provider.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, Modifier.weight(1f))
-                Text("${provider.rating}")
-            }
+            Text(provider.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("${provider.service} • ${provider.village}")
             Text(if (provider.availability == "अभी उपलब्ध") "🟢 ${provider.availability}" else "⚪ ${provider.availability}")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
