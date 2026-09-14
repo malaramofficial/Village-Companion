@@ -1,5 +1,6 @@
--- Village Companion — Barmer / Aadel location hierarchy
--- V1 scope: ONLY Aadel block. Village rows are added only from authoritative LGD data.
+-- Village Companion — Barmer district location hierarchy
+-- V1 scope: entire current Barmer district.
+-- Village rows must be imported from authoritative LGD data; no guessed mappings.
 
 create table if not exists public.districts (
     id uuid primary key default gen_random_uuid(),
@@ -37,14 +38,30 @@ create policy "public read active districts" on public.districts for select to a
 drop policy if exists "public read active blocks" on public.blocks;
 create policy "public read active blocks" on public.blocks for select to anon, authenticated using (is_active = true);
 
-insert into public.districts (name, state) values ('Barmer', 'Rajasthan') on conflict (name, state) do nothing;
+insert into public.districts (name, state)
+values ('Barmer', 'Rajasthan')
+on conflict (name, state) do nothing;
 
 insert into public.blocks (district_id, name)
-select d.id, 'Aadel' from public.districts d
+select d.id, b.name
+from public.districts d
+cross join (values
+    ('Aadel'),
+    ('Barmer'),
+    ('Barmer Rural'),
+    ('Baytoo'),
+    ('Chohtan'),
+    ('Dhanau'),
+    ('Fagliya'),
+    ('Gadra Road'),
+    ('Ramsar'),
+    ('Sedwa'),
+    ('Sheo')
+) as b(name)
 where d.name = 'Barmer' and d.state = 'Rajasthan'
 on conflict (district_id, name) do nothing;
 
-comment on table public.districts is 'V1 location scope: Barmer district, Rajasthan.';
-comment on table public.blocks is 'V1 location scope: Aadel development block only.';
+comment on table public.districts is 'V1 location scope: entire current Barmer district, Rajasthan.';
+comment on table public.blocks is 'V1 location scope: all 11 current Barmer development blocks according to the current LGD-backed government directory.';
 comment on column public.villages.block_id is 'Authoritative LGD block mapping; no guessed mappings.';
 comment on column public.villages.lgd_code is 'LGD village code where available.';
