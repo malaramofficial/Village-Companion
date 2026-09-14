@@ -353,7 +353,7 @@ private fun ProviderCard(provider: Provider) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(provider.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, Modifier.weight(1f))
-                Text(text = provider.rating)
+                Text("${provider.rating}")
             }
             Text("${provider.service} • ${provider.village}")
             Text(if (provider.availability == "अभी उपलब्ध") "🟢 ${provider.availability}" else "⚪ ${provider.availability}")
