@@ -28,8 +28,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,14 +50,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private data class Category(val emoji: String, val title: String, val subtitle: String)
-
-private data class Provider(
-    val name: String,
-    val village: String,
-    val service: String,
-    val availability: String,
-    val rating: String
-)
+private data class Provider(val name: String, val village: String, val service: String, val availability: String, val rating: String)
 
 private val categories = listOf(
     Category("🌾", "कृषि मजदूर", "खेत का काम"),
@@ -74,27 +69,26 @@ private val demoProviders = listOf(
 
 @Composable
 fun VillageCompanionApp() {
-    var selectedMode by remember { mutableStateOf("customer") }
+    var screen by remember { mutableStateOf("home") }
     var selectedCategory by remember { mutableStateOf<Category?>(null) }
-    var selectedVillage by remember { mutableStateOf<String?>(null) }
 
     MaterialTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            if (selectedCategory != null) {
-                ServiceResultsScreen(
-                    category = selectedCategory!!,
-                    village = selectedVillage,
-                    onVillageSelected = { selectedVillage = it },
-                    onBack = {
-                        selectedCategory = null
-                        selectedVillage = null
-                    }
+        Surface(Modifier.fillMaxSize()) {
+            when (screen) {
+                "provider" -> ProviderRegistrationScreen(
+                    onBack = { screen = "home" },
+                    onSaved = { screen = "home" }
                 )
-            } else {
-                HomeScreen(
-                    selectedMode = selectedMode,
-                    onModeChange = { selectedMode = it },
-                    onCategoryClick = { selectedCategory = it }
+                "results" -> ServiceResultsScreen(
+                    category = selectedCategory!!,
+                    onBack = { screen = "home" }
+                )
+                else -> HomeScreen(
+                    onProvider = { screen = "provider" },
+                    onCategory = {
+                        selectedCategory = it
+                        screen = "results"
+                    }
                 )
             }
         }
@@ -102,64 +96,44 @@ fun VillageCompanionApp() {
 }
 
 @Composable
-private fun HomeScreen(
-    selectedMode: String,
-    onModeChange: (String) -> Unit,
-    onCategoryClick: (Category) -> Unit
-) {
+private fun HomeScreen(onProvider: () -> Unit, onCategory: (Category) -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 18.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(
-                        MaterialTheme.colorScheme.primaryContainer,
-                        RoundedCornerShape(14.dp)
-                    ),
+                Modifier.size(48.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) { Text("🌾", style = MaterialTheme.typography.titleLarge) }
             Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(Modifier.weight(1f)) {
                 Text("Village Companion", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("गाँव साथी • काम और सेवा", style = MaterialTheme.typography.bodyMedium)
+                Text("गाँव साथी • काम और सेवा")
             }
         }
 
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
         ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(Modifier.padding(18.dp)) {
                 Text("गाँव में क्या चाहिए?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
-                Text("अपने गाँव के आसपास उपलब्ध व्यक्ति या मशीन खोजें।")
+                Text("अपने आसपास उपलब्ध व्यक्ति या मशीन खोजें।")
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = { onModeChange("customer") }, modifier = Modifier.fillMaxWidth()) {
-                    Text("🙋 मुझे सेवा चाहिए")
-                }
+                Text("🙋 मुझे सेवा चाहिए", fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = { onModeChange("provider") }, modifier = Modifier.fillMaxWidth()) {
+                Text("नीचे कोई सेवा चुनें।")
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onProvider, Modifier.fillMaxWidth()) {
                     Text("👨‍🔧 मैं सेवा देता हूँ")
                 }
             }
         }
 
-        Text(
-            if (selectedMode == "customer") "कौन-सी सेवा चाहिए?" else "आप कौन-सी सेवा देते हैं?",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
-
+        Text("लोकप्रिय सेवाएँ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxWidth().height(390.dp),
@@ -169,10 +143,10 @@ private fun HomeScreen(
         ) {
             items(categories) { category ->
                 Card(
-                    modifier = Modifier.fillMaxWidth().clickable { onCategoryClick(category) },
+                    Modifier.fillMaxWidth().clickable { onCategory(category) },
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
+                    Column(Modifier.padding(14.dp)) {
                         Text(category.emoji, style = MaterialTheme.typography.headlineSmall)
                         Spacer(Modifier.height(6.dp))
                         Text(category.title, fontWeight = FontWeight.SemiBold)
@@ -181,53 +155,89 @@ private fun HomeScreen(
                 }
             }
         }
-        Text("सेवा चुनें → गाँव चुनें → उपलब्ध लोग देखें → सीधे Call / WhatsApp करें।")
+        Text("सेवा चुनें → उपलब्ध लोग देखें → सीधे संपर्क करें।")
     }
 }
 
 @Composable
-private fun ServiceResultsScreen(
-    category: Category,
-    village: String?,
-    onVillageSelected: (String) -> Unit,
-    onBack: () -> Unit
-) {
-    val villages = listOf("मेरा गाँव", "नोकड़ा", "मीठी बेरी", "डऊकीयो की ढाणी")
-    val filtered = if (village == null || village == "मेरा गाँव") demoProviders else demoProviders.filter { it.village == village }
+private fun ProviderRegistrationScreen(onBack: () -> Unit, onSaved: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var village by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
+    var selectedService by remember { mutableStateOf<Category?>(null) }
+    var available by remember { mutableStateOf(true) }
+    var saved by remember { mutableStateOf(false) }
 
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        TextButton(onClick = onBack) { Text("← वापस") }
+        Text("अपनी सेवा दर्ज करें", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text("अभी यह जानकारी फोन में demo रूप में रहेगी। Firebase बाद में जोड़ा जाएगा।")
+
+        OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("नाम") }, singleLine = true)
+        OutlinedTextField(village, { village = it }, Modifier.fillMaxWidth(), label = { Text("गाँव") }, singleLine = true)
+        OutlinedTextField(phone, { phone = it }, Modifier.fillMaxWidth(), label = { Text("मोबाइल नंबर") }, singleLine = true)
+
+        Text("सेवा चुनें", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        categories.forEach { category ->
+            OutlinedButton(
+                onClick = { selectedService = category },
+                Modifier.fillMaxWidth()
+            ) { Text(if (selectedService == category) "✓ ${category.emoji} ${category.title}" else "${category.emoji} ${category.title}") }
+        }
+
+        OutlinedButton(onClick = { available = !available }, Modifier.fillMaxWidth()) {
+            Text(if (available) "🟢 अभी उपलब्ध" else "⚪ अभी उपलब्ध नहीं")
+        }
+
+        if (saved) {
+            Text("✓ प्रोफाइल तैयार है। अगला चरण इसे Firebase में सुरक्षित रूप से सेव करना होगा।")
+        } else {
+            Button(
+                onClick = { if (name.isNotBlank() && village.isNotBlank() && phone.isNotBlank() && selectedService != null) saved = true },
+                Modifier.fillMaxWidth()
+            ) { Text("प्रोफाइल सेव करें") }
+        }
+        if (saved) {
+            OutlinedButton(onClick = onSaved, Modifier.fillMaxWidth()) { Text("होम पर जाएँ") }
+        }
+    }
+}
+
+@Composable
+private fun ServiceResultsScreen(category: Category, onBack: () -> Unit) {
+    var village by remember { mutableStateOf("मेरा गाँव") }
+    val villages = listOf("मेरा गाँव", "नोकड़ा", "मीठी बेरी", "डऊकीयो की ढाणी")
+    val filtered = if (village == "मेरा गाँव") demoProviders else demoProviders.filter { it.village == village }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         OutlinedButton(onClick = onBack) { Text("← वापस") }
         Text("${category.emoji} ${category.title}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("अपने आसपास सेवा देने वाले लोग खोजें।")
-
         Text("गाँव चुनें", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            villages.take(2).forEach { item ->
-                OutlinedButton(onClick = { onVillageSelected(item) }) { Text(item) }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            villages.drop(2).forEach { item ->
-                OutlinedButton(onClick = { onVillageSelected(item) }) { Text(item) }
+
+        villages.forEach { item ->
+            OutlinedButton(onClick = { village = item }, Modifier.fillMaxWidth()) {
+                Text(if (village == item) "✓ $item" else item)
             }
         }
 
         Text("${filtered.size} उपलब्ध प्रोफाइल", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        filtered.forEach { provider ->
-            ProviderCard(provider)
-        }
+        filtered.forEach { ProviderCard(it) }
     }
 }
 
 @Composable
 private fun ProviderCard(provider: Provider) {
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(provider.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(provider.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, Modifier.weight(1f))
                 Text(provider.rating)
             }
             Text("${provider.service} • ${provider.village}")
