@@ -29,7 +29,6 @@ object LocalLocationData {
             Gp("बाण्ड"),
             Gp("मालपुरा", listOf("Heerpura", "Hukmani Khoton Ki Dhani", "Malpura", "Thoriyon Ka Tala")),
             Gp("मंगले की बेरी", listOf("Ambedkar Nagar", "Dhanne Bhil Ki Dhani", "Gadher Magwalo Ki Dhani", "Khumoni Beniwalon Ki Dhani", "Mangle Ki Beri", "Naya Kua", "Radon And Kumharo Ki Dhani", "Ramnagar", "Tejasar", "Vagoni Dhatarwalon Ki Dhani", "Wankalsar")),
-            Gp("राणासर खुर्द"),
             Gp("राणासर खुर्द")
         )),
         Block("Barmer", emptyList()),
