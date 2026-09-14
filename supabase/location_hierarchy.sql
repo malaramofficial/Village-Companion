@@ -46,7 +46,7 @@ create policy "public read active blocks" on public.blocks for select using (act
 drop policy if exists "public read active gram panchayats" on public.gram_panchayats;
 create policy "public read active gram panchayats" on public.gram_panchayats for select using (active = true);
 drop policy if exists "public read active villages" on public.villages;
-create policy "public read active villages" on public.villages for select using (active = true);
+create policy "public read active villages" on public.villages for select using (is_active = true);
 
 -- Current Barmer district and its 11 current blocks.
 insert into public.districts (name, active)
@@ -117,15 +117,15 @@ with data(gp_name, village_name) as (
     ('निम्बलकोट','Bheraram Moondh Nagar'),('निम्बलकोट','Doloni Siyago Ka Tala'),('निम्बलकोट','Lakhoni Godaron Ki Dhani'),('निम्बलकोट','Lakhoni Megwalon Ki Dhani'),('निम्बलकोट','Neembal Kot'),('निम्बलकोट','Neembal Nadi'),('निम्बलकोट','Siyagon Ki Dhani Chak No1'),
     ('नोखड़ा','Adarsh Nokhra'),('नोखड़ा','Bhomani Meghwalon Ki Dhani'),('नोखड़ा','Guruon Ka Tala'),('नोखड़ा','Hira Nagar'),('नोखड़ा','Jagram Ki Dhani'),('नोखड़ा','N.T. Nagar'),('नोखड़ा','Nehron Ka Tala'),('नोखड़ा','Nokhra'),('नोखड़ा','Salgasar')
 )
-insert into public.villages (name, district, state, block_id, gram_panchayat_id, active)
+insert into public.villages (name, district, state, block_id, gram_panchayat_id, is_active)
 select dta.village_name, 'Barmer', 'Rajasthan', b.id, gp.id, true
 from data dta
 join public.gram_panchayats gp on gp.name = dta.gp_name
 join public.blocks b on b.id = gp.block_id
 join public.districts d on d.id = b.district_id and d.name = 'Barmer'
-on conflict (name, district, state) do update set block_id = excluded.block_id, gram_panchayat_id = excluded.gram_panchayat_id, active = true;
+on conflict (name, district, state) do update set block_id = excluded.block_id, gram_panchayat_id = excluded.gram_panchayat_id, is_active = true;
 
 select 'location hierarchy ready' as status,
        (select count(*) from public.blocks b join public.districts d on d.id=b.district_id where d.name='Barmer') as blocks,
        (select count(*) from public.gram_panchayats gp join public.blocks b on b.id=gp.block_id join public.districts d on d.id=b.district_id where d.name='Barmer' and b.name='Aadel') as gram_panchayats,
-       (select count(*) from public.villages where district='Barmer' and gram_panchayat_id is not null) as villages;
+       (select count(*) from public.villages where district='Barmer' and gram_panchayat_id is not null and is_active = true) as villages;
