@@ -16,8 +16,10 @@ data class SupabaseServiceRow(
 @Serializable
 data class DistrictRow(val id: String, val name: String)
 
+@Serializable
 data class BlockRow(val id: String, val district_id: String, val name: String)
 
+@Serializable
 data class GramPanchayatRow(val id: String, val block_id: String, val name: String)
 
 @Serializable
