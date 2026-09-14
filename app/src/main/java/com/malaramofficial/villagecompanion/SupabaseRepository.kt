@@ -39,8 +39,7 @@ private const val LOCATION_TIMEOUT_MS = 2_500L
  *
  * Location hierarchy is offline-first: the bundled catalogue is always available
  * as a fallback, while Supabase remains the authoritative source whenever it is
- * reachable. This means an installed APK does not need to be rebuilt when the
- * remote location catalogue is changed.
+ * reachable and returns usable data.
  */
 object SupabaseRepository {
     suspend fun getActiveServices(): List<SupabaseServiceRow> =
@@ -79,7 +78,7 @@ object SupabaseRepository {
                 }.decodeList<BlockRow>().sortedBy { it.name }
             }
         }.getOrNull()
-        return remote ?: localBlocks()
+        return remote?.takeIf { it.isNotEmpty() } ?: localBlocks()
     }
 
     suspend fun getGramPanchayats(blockId: String): List<GramPanchayatRow> {
@@ -93,7 +92,7 @@ object SupabaseRepository {
                 }.decodeList<GramPanchayatRow>().sortedBy { it.name }
             }
         }.getOrNull()
-        return remote ?: localGps(blockId)
+        return remote?.takeIf { it.isNotEmpty() } ?: localGps(blockId)
     }
 
     suspend fun getVillages(gramPanchayatId: String): List<VillageRow> {
@@ -107,7 +106,7 @@ object SupabaseRepository {
                 }.decodeList<VillageRow>().sortedBy { it.name }
             }
         }.getOrNull()
-        return remote ?: localVillages(gramPanchayatId)
+        return remote?.takeIf { it.isNotEmpty() } ?: localVillages(gramPanchayatId)
     }
 
     private fun localBlocks(): List<BlockRow> =
