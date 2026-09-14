@@ -1,5 +1,6 @@
 package com.malaramofficial.villagecompanion
 
+import io.github.jan.supabase.postgrest.from
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -18,7 +19,7 @@ data class SupabaseServiceRow(
  */
 object SupabaseRepository {
     suspend fun getActiveServices(): List<SupabaseServiceRow> {
-        return supabase
+        return supabase.postgrest
             .from("services")
             .select {
                 filter {
