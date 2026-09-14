@@ -1,6 +1,8 @@
 package com.malaramofficial.villagecompanion
 
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Columns
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -30,30 +32,52 @@ data class VillageRow(
     val gram_panchayat_id: String? = null
 )
 
+private const val LOCATION_TIMEOUT_MS = 10_000L
+
 /** Live read-only location/service data for the V1 public catalogue. */
 object SupabaseRepository {
     suspend fun getActiveServices(): List<SupabaseServiceRow> =
-        supabase.from("services").select {
-            filter { eq("active", true) }
-        }.decodeList<SupabaseServiceRow>().sortedBy { it.sort_order }
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("services").select(
+                columns = Columns.list("id", "name", "subtitle", "emoji", "sort_order", "active")
+            ) {
+                filter { eq("active", true) }
+            }.decodeList<SupabaseServiceRow>().sortedBy { it.sort_order }
+        }
 
     suspend fun getDistrict(name: String): DistrictRow? =
-        supabase.from("districts").select {
-            filter { eq("name", name) }
-        }.decodeList<DistrictRow>().firstOrNull()
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("districts").select(
+                columns = Columns.list("id", "name")
+            ) {
+                filter { eq("name", name) }
+            }.decodeList<DistrictRow>().firstOrNull()
+        }
 
     suspend fun getBlocks(districtId: String): List<BlockRow> =
-        supabase.from("blocks").select {
-            filter { eq("district_id", districtId) }
-        }.decodeList<BlockRow>().sortedBy { it.name }
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("blocks").select(
+                columns = Columns.list("id", "district_id", "name")
+            ) {
+                filter { eq("district_id", districtId) }
+            }.decodeList<BlockRow>().sortedBy { it.name }
+        }
 
     suspend fun getGramPanchayats(blockId: String): List<GramPanchayatRow> =
-        supabase.from("gram_panchayats").select {
-            filter { eq("block_id", blockId) }
-        }.decodeList<GramPanchayatRow>().sortedBy { it.name }
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("gram_panchayats").select(
+                columns = Columns.list("id", "block_id", "name")
+            ) {
+                filter { eq("block_id", blockId) }
+            }.decodeList<GramPanchayatRow>().sortedBy { it.name }
+        }
 
     suspend fun getVillages(gramPanchayatId: String): List<VillageRow> =
-        supabase.from("villages").select {
-            filter { eq("gram_panchayat_id", gramPanchayatId) }
-        }.decodeList<VillageRow>().sortedBy { it.name }
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("villages").select(
+                columns = Columns.list("id", "name", "block_id", "gram_panchayat_id")
+            ) {
+                filter { eq("gram_panchayat_id", gramPanchayatId) }
+            }.decodeList<VillageRow>().sortedBy { it.name }
+        }
 }
