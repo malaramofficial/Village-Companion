@@ -16,10 +16,8 @@ data class SupabaseServiceRow(
 @Serializable
 data class DistrictRow(val id: String, val name: String)
 
-@Serializable
 data class BlockRow(val id: String, val district_id: String, val name: String)
 
-@Serializable
 data class GramPanchayatRow(val id: String, val block_id: String, val name: String)
 
 @Serializable
@@ -39,21 +37,21 @@ object SupabaseRepository {
 
     suspend fun getDistrict(name: String): DistrictRow? =
         supabase.from("districts").select {
-            filter { eq("name", name); eq("active", true) }
+            filter { eq("name", name) }
         }.decodeList<DistrictRow>().firstOrNull()
 
     suspend fun getBlocks(districtId: String): List<BlockRow> =
         supabase.from("blocks").select {
-            filter { eq("district_id", districtId); eq("active", true) }
+            filter { eq("district_id", districtId) }
         }.decodeList<BlockRow>().sortedBy { it.name }
 
     suspend fun getGramPanchayats(blockId: String): List<GramPanchayatRow> =
         supabase.from("gram_panchayats").select {
-            filter { eq("block_id", blockId); eq("active", true) }
+            filter { eq("block_id", blockId) }
         }.decodeList<GramPanchayatRow>().sortedBy { it.name }
 
     suspend fun getVillages(gramPanchayatId: String): List<VillageRow> =
         supabase.from("villages").select {
-            filter { eq("gram_panchayat_id", gramPanchayatId); eq("active", true) }
+            filter { eq("gram_panchayat_id", gramPanchayatId) }
         }.decodeList<VillageRow>().sortedBy { it.name }
 }
