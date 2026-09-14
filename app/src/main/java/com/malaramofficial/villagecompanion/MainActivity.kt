@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,15 +67,6 @@ private val categories = listOf(
     Category("🌾", "कृषि मजदूर", "खेत का काम"), Category("🚜", "Tractor / मशीन", "किराये पर मशीन"),
     Category("⚡", "Electrician", "बिजली का काम"), Category("⚙️", "Motor / Pump", "मरम्मत सेवा"),
     Category("🚰", "Plumber", "पानी की लाइन"), Category("🧱", "Mason / Welding", "निर्माण काम")
-)
-
-// V1 testing selector: Barmer district -> Aadel block -> village.
-// This is a sample UI catalogue; production data must come from the authoritative LGD import.
-private val aadelVillages = listOf(
-    "Adel", "Aadarsh Aadel", "Aadel Magji", "Bhabhuon Ka Tala", "Band", "Band Dheemji",
-    "Bhanwarnagar", "Dhanasar", "Gangapura", "Goliya Jetmal", "Haroonagar", "Kalasar",
-    "Khadiyali Nadi", "Khariya Khurd", "Kishanpura", "Meethi Beri", "Modaniyon Ki Dhani",
-    "Nimbalkot", "Nokhra", "Pemsiddh Nagar", "Ramdevpura", "Sadecha", "Daukiyon Ki Dhani"
 )
 
 private const val PREFS = "village_companion_provider"
@@ -135,9 +128,9 @@ private fun HomeScreen(onProvider: () -> Unit, onCategory: (Category) -> Unit) {
         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
             Column(Modifier.padding(18.dp)) {
                 Text("गाँव में क्या चाहिए?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text("Barmer → Aadel के गाँव में सेवा खोजें।")
+                Text("Barmer जिले के गाँव में सेवा खोजें।")
                 Spacer(Modifier.height(10.dp)); Text("🙋 मुझे सेवा चाहिए", fontWeight = FontWeight.Bold)
-                Text("सेवा चुनें, फिर गाँव चुनें।")
+                Text("सेवा चुनें → पंचायत समिति → ग्राम पंचायत → गाँव")
                 Spacer(Modifier.height(10.dp)); OutlinedButton(onClick = onProvider, Modifier.fillMaxWidth()) { Text("👨‍🔧 मैं सेवा देता हूँ") }
             }
         }
@@ -146,55 +139,126 @@ private fun HomeScreen(onProvider: () -> Unit, onCategory: (Category) -> Unit) {
             rowItems.forEach { c -> Card(Modifier.weight(1f).clickable { onCategory(c) }, shape = RoundedCornerShape(16.dp)) { Column(Modifier.padding(14.dp)) { Text(c.emoji, style = MaterialTheme.typography.headlineSmall); Spacer(Modifier.height(6.dp)); Text(c.title, fontWeight = FontWeight.SemiBold); Text(c.subtitle, style = MaterialTheme.typography.bodySmall) } } }
             if (rowItems.size == 1) Spacer(Modifier.weight(1f))
         } }
-        Text("सेवा चुनें → गाँव चुनें → उपलब्ध लोग देखें → सीधे संपर्क करें।")
+        Text("सेवा चुनें → स्थान चुनें → उपलब्ध लोग देखें → सीधे संपर्क करें।")
     }
 }
 
 @Composable
-private fun VillageDropdown(label: String, value: String, options: List<String>, onSelect: (String) -> Unit) {
+private fun LocationDropdown(label: String, value: String, options: List<String>, enabled: Boolean = true, loading: Boolean = false, onSelect: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth()) {
-        OutlinedTextField(value = value, onValueChange = {}, readOnly = true, modifier = Modifier.fillMaxWidth().clickable { expanded = true }, label = { Text(label) }, trailingIcon = { Text("▾") })
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.fillMaxWidth(0.9f)) {
-            options.forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { onSelect(option); expanded = false }) }
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            readOnly = true,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth().clickable(enabled = enabled) { expanded = true },
+            label = { Text(label) },
+            trailingIcon = { if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("▾") }
+        )
+        if (enabled && options.isNotEmpty()) {
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.fillMaxWidth(0.9f)) {
+                options.forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { onSelect(option); expanded = false }) }
+            }
         }
+    }
+}
+
+@Composable
+private fun LocationSelector(onVillageSelected: (VillageRow) -> Unit) {
+    var blocks by remember { mutableStateOf<List<BlockRow>>(emptyList()) }
+    var gps by remember { mutableStateOf<List<GramPanchayatRow>>(emptyList()) }
+    var villages by remember { mutableStateOf<List<VillageRow>>(emptyList()) }
+    var block by remember { mutableStateOf<BlockRow?>(null) }
+    var gp by remember { mutableStateOf<GramPanchayatRow?>(null) }
+    var village by remember { mutableStateOf<VillageRow?>(null) }
+    var loadingBlocks by remember { mutableStateOf(true) }
+    var loadingGps by remember { mutableStateOf(false) }
+    var loadingVillages by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        loadingBlocks = true
+        error = ""
+        runCatching {
+            val district = SupabaseRepository.getDistrict("Barmer") ?: error("Barmer जिला database में नहीं मिला")
+            SupabaseRepository.getBlocks(district.id)
+        }.onSuccess { blocks = it; loadingBlocks = false }
+            .onFailure { error = "स्थान लोड नहीं हो सका: ${it.message ?: "नेटवर्क समस्या"}"; loadingBlocks = false }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("स्थान चुनें", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("📍 जिला: Barmer")
+        LocationDropdown("पंचायत समिति चुनें", block?.name.orEmpty(), blocks.map { it.name }, loading = loadingBlocks) { selected ->
+            block = blocks.firstOrNull { it.name == selected }
+            gp = null; village = null; gps = emptyList(); villages = emptyList(); error = ""
+        }
+        LocationDropdown("ग्राम पंचायत चुनें", gp?.name.orEmpty(), gps.map { it.name }, enabled = block != null, loading = loadingGps) { selected ->
+            gp = gps.firstOrNull { it.name == selected }
+            village = null; villages = emptyList(); error = ""
+        }
+        LocationDropdown("गाँव का नाम चुनें", village?.name.orEmpty(), villages.map { it.name }, enabled = gp != null, loading = loadingVillages) { selected ->
+            village = villages.firstOrNull { it.name == selected }
+            village?.let(onVillageSelected)
+        }
+        LaunchedEffect(block?.id) {
+            if (block == null) return@LaunchedEffect
+            loadingGps = true
+            runCatching { SupabaseRepository.getGramPanchayats(block!!.id) }
+                .onSuccess { gps = it; loadingGps = false }
+                .onFailure { error = "ग्राम पंचायत लोड नहीं हो सकी: ${it.message ?: "नेटवर्क समस्या"}"; loadingGps = false }
+        }
+        LaunchedEffect(gp?.id) {
+            if (gp == null) return@LaunchedEffect
+            loadingVillages = true
+            runCatching { SupabaseRepository.getVillages(gp!!.id) }
+                .onSuccess { villages = it; loadingVillages = false }
+                .onFailure { error = "गाँवों की सूची लोड नहीं हो सकी: ${it.message ?: "नेटवर्क समस्या"}"; loadingVillages = false }
+        }
+        if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
     }
 }
 
 @Composable
 private fun ProviderRegistrationScreen(onBack: () -> Unit, onSaved: () -> Unit) {
     val context = LocalContext.current; val existing = remember { loadSavedProvider(context) }
-    var name by remember { mutableStateOf(existing?.name.orEmpty()) }; var village by remember { mutableStateOf(existing?.village ?: aadelVillages.first()) }
-    var phone by remember { mutableStateOf(existing?.phone.orEmpty()) }; var service by remember { mutableStateOf(existing?.service ?: categories.first().title) }
-    var available by remember { mutableStateOf(existing?.availability != "अभी उपलब्ध नहीं") }; var error by remember { mutableStateOf("") }; var saved by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf(existing?.name.orEmpty()) }
+    var village by remember { mutableStateOf(existing?.village.orEmpty()) }
+    var phone by remember { mutableStateOf(existing?.phone.orEmpty()) }
+    var service by remember { mutableStateOf(existing?.service ?: categories.first().title) }
+    var available by remember { mutableStateOf(existing?.availability != "अभी उपलब्ध नहीं") }
+    var selectedVillage by remember { mutableStateOf<VillageRow?>(null) }
+    var error by remember { mutableStateOf("") }; var saved by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextButton(onClick = onBack) { Text("← वापस") }; Text("अपनी सेवा दर्ज करें", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("स्थान लिखने की जरूरत नहीं: Barmer → Aadel → गाँव चुनें।")
+        Text("Barmer → पंचायत समिति → ग्राम पंचायत → गाँव चुनें।")
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("नाम") }, singleLine = true)
-        VillageDropdown("गाँव चुनें", village, aadelVillages) { village = it }
+        LocationSelector { selectedVillage = it; village = it.name }
         OutlinedTextField(phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text("मोबाइल नंबर") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
         Text("सेवा चुनें", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         categories.forEach { c -> OutlinedButton(onClick = { service = c.title }, Modifier.fillMaxWidth()) { Text(if (service == c.title) "✓ ${c.emoji} ${c.title}" else "${c.emoji} ${c.title}") } }
         OutlinedButton(onClick = { available = !available }, Modifier.fillMaxWidth()) { Text(if (available) "🟢 अभी उपलब्ध" else "⚪ अभी उपलब्ध नहीं") }
         if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
-        if (!saved) Button(onClick = { error = when { name.isBlank() -> "नाम भरें।"; phone.length != 10 -> "10 अंकों का मोबाइल नंबर भरें।"; else -> "" }; if (error.isBlank()) { saveProvider(context, Provider(name.trim(), village, service, if (available) "अभी उपलब्ध" else "अभी उपलब्ध नहीं", phone)); saved = true } }, Modifier.fillMaxWidth()) { Text("प्रोफाइल सेव करें") }
+        if (!saved) Button(onClick = { error = when { name.isBlank() -> "नाम भरें।"; selectedVillage == null && village.isBlank() -> "पहले गाँव चुनें।"; phone.length != 10 -> "10 अंकों का मोबाइल नंबर भरें।"; else -> "" }; if (error.isBlank()) { saveProvider(context, Provider(name.trim(), village, service, if (available) "अभी उपलब्ध" else "अभी उपलब्ध नहीं", phone)); saved = true } }, Modifier.fillMaxWidth()) { Text("प्रोफाइल सेव करें") }
         if (saved) { Text("✓ प्रोफाइल सेव हो गई।"); OutlinedButton(onClick = onSaved, Modifier.fillMaxWidth()) { Text("होम पर जाएँ") } }
     }
 }
 
 @Composable
 private fun ServiceResultsScreen(category: Category, onBack: () -> Unit) {
-    val context = LocalContext.current; val saved = remember { loadSavedProvider(context) }; var village by remember { mutableStateOf(aadelVillages.first()) }
-    val demo = listOf(Provider("टेस्ट सेवा प्रदाता", aadelVillages.first(), category.title, "अभी उपलब्ध", "9999999999"), Provider("आपकी प्रोफाइल", saved?.village ?: aadelVillages.first(), saved?.service ?: category.title, saved?.availability ?: "अभी उपलब्ध", saved?.phone))
+    val context = LocalContext.current; val saved = remember { loadSavedProvider(context) }
+    var selectedVillage by remember { mutableStateOf<VillageRow?>(null) }
+    val demoVillage = selectedVillage?.name ?: saved?.village
+    val demo = listOf(Provider("टेस्ट सेवा प्रदाता", demoVillage ?: "", category.title, "अभी उपलब्ध", "9999999999"), Provider("आपकी प्रोफाइल", saved?.village ?: "", saved?.service ?: category.title, saved?.availability ?: "अभी उपलब्ध", saved?.phone))
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextButton(onClick = onBack) { Text("← वापस") }; Text("${category.emoji} ${category.title}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("स्थान: Barmer → Aadel"); VillageDropdown("गाँव चुनें", village, aadelVillages) { village = it }
-        val visible = demo.filter { it.service == category.title && it.village == village }
-        if (visible.isEmpty()) Text("इस गाँव में अभी कोई प्रोफाइल नहीं मिली।")
+        LocationSelector { selectedVillage = it }
+        val visible = if (selectedVillage == null) emptyList() else demo.filter { it.service == category.title && it.village == selectedVillage!!.name }
+        if (selectedVillage != null && visible.isEmpty()) Text("इस गाँव में अभी कोई प्रोफाइल नहीं मिली।")
         visible.forEach { p -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(p.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text("📍 ${p.village}"); Text(p.availability)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = { dial(context, p.phone) }, Modifier.weight(1f)) { Text("📞 Call") }; OutlinedButton(onClick = { whatsapp(context, p.phone, p.name) }, Modifier.weight(1f)) { Text("WhatsApp") } }
         } } }
-        Text("Testing mode: Aadel की sample village list लगी है।")
     }
 }
