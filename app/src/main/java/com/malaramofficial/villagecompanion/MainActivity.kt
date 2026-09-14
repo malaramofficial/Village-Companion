@@ -1,9 +1,11 @@
 package com.malaramofficial.villagecompanion
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -43,10 +45,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -102,16 +104,42 @@ private fun loadSavedProvider(context: Context): Provider? {
     return Provider(name, village, service, if (available) "अभी उपलब्ध" else "अभी उपलब्ध नहीं", "नई ★", phone)
 }
 
+private fun showActionError(context: Context, message: String) {
+    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+}
+
 private fun dialProvider(context: Context, phone: String?) {
-    if (phone.isNullOrBlank()) return
-    context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone")))
+    if (phone.isNullOrBlank()) {
+        showActionError(context, "इस प्रोफाइल में मोबाइल नंबर नहीं है।")
+        return
+    }
+    try {
+        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phone)}")))
+    } catch (_: ActivityNotFoundException) {
+        showActionError(context, "फोन ऐप उपलब्ध नहीं है।")
+    }
 }
 
 private fun whatsappProvider(context: Context, phone: String?, providerName: String) {
-    if (phone.isNullOrBlank()) return
-    val normalized = phone.filter { it.isDigit() }.let { if (it.length == 10) "91$it" else it }
+    if (phone.isNullOrBlank()) {
+        showActionError(context, "इस प्रोफाइल में मोबाइल नंबर नहीं है।")
+        return
+    }
+    val digits = phone.filter { it.isDigit() }
+    val normalized = when {
+        digits.length == 10 -> "91$digits"
+        digits.length == 12 && digits.startsWith("91") -> digits
+        else -> {
+            showActionError(context, "मोबाइल नंबर सही नहीं है।")
+            return
+        }
+    }
     val message = Uri.encode("नमस्ते $providerName, मुझे आपकी सेवा के बारे में जानकारी चाहिए।")
-    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$normalized?text=$message")))
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$normalized?text=$message")))
+    } catch (_: ActivityNotFoundException) {
+        showActionError(context, "WhatsApp खोलने में समस्या हुई।")
+    }
 }
 
 @Composable
@@ -126,9 +154,11 @@ fun VillageCompanionApp() {
                     onBack = { screen = "home" },
                     onSaved = { screen = "home" }
                 )
-                "results" -> ServiceResultsScreen(
-                    category = selectedCategory!!,
-                    onBack = { screen = "home" }
+                "results" -> selectedCategory?.let { category ->
+                    ServiceResultsScreen(category = category, onBack = { screen = "home" })
+                } ?: HomeScreen(
+                    onProvider = { screen = "provider" },
+                    onCategory = { selectedCategory = it; screen = "results" }
                 )
                 else -> HomeScreen(
                     onProvider = { screen = "provider" },
@@ -306,7 +336,7 @@ private fun ServiceResultsScreen(category: Category, onBack: () -> Unit) {
             }
         }
 
-        Text("${filtered.size} उपलब्ध प्रोफाइल", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("${filtered.size} प्रोफाइल मिली", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         if (filtered.isEmpty()) {
             Text("इस सेवा और गाँव के लिए अभी कोई प्रोफाइल नहीं मिली।")
         } else {
