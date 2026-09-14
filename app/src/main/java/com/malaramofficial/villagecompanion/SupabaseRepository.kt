@@ -32,9 +32,16 @@ data class VillageRow(
     val gram_panchayat_id: String? = null
 )
 
-private const val LOCATION_TIMEOUT_MS = 10_000L
+private const val LOCATION_TIMEOUT_MS = 2_500L
 
-/** Live read-only location/service data for the V1 public catalogue. */
+/**
+ * Data access layer.
+ *
+ * Location hierarchy is offline-first: the bundled catalogue is always available
+ * as a fallback, while Supabase remains the authoritative source whenever it is
+ * reachable. This means an installed APK does not need to be rebuilt when the
+ * remote location catalogue is changed.
+ */
 object SupabaseRepository {
     suspend fun getActiveServices(): List<SupabaseServiceRow> =
         withTimeout(LOCATION_TIMEOUT_MS) {
@@ -45,39 +52,90 @@ object SupabaseRepository {
             }.decodeList<SupabaseServiceRow>().sortedBy { it.sort_order }
         }
 
-    suspend fun getDistrict(name: String): DistrictRow? =
-        withTimeout(LOCATION_TIMEOUT_MS) {
-            supabase.from("districts").select(
-                columns = Columns.list("id", "name")
-            ) {
-                filter { eq("name", name) }
-            }.decodeList<DistrictRow>().firstOrNull()
+    suspend fun getDistrict(name: String): DistrictRow? {
+        val remote = runCatching {
+            withTimeout(LOCATION_TIMEOUT_MS) {
+                supabase.from("districts").select(
+                    columns = Columns.list("id", "name")
+                ) {
+                    filter { eq("name", name) }
+                }.decodeList<DistrictRow>().firstOrNull()
+            }
+        }.getOrNull()
+        if (remote != null) return remote
+        return if (name.equals(LocalLocationData.districtName, ignoreCase = true)) {
+            DistrictRow("local-district-barmer", LocalLocationData.districtName)
+        } else null
+    }
+
+    suspend fun getBlocks(districtId: String): List<BlockRow> {
+        if (districtId.startsWith("local-")) return localBlocks()
+        val remote = runCatching {
+            withTimeout(LOCATION_TIMEOUT_MS) {
+                supabase.from("blocks").select(
+                    columns = Columns.list("id", "district_id", "name")
+                ) {
+                    filter { eq("district_id", districtId) }
+                }.decodeList<BlockRow>().sortedBy { it.name }
+            }
+        }.getOrNull()
+        return remote ?: localBlocks()
+    }
+
+    suspend fun getGramPanchayats(blockId: String): List<GramPanchayatRow> {
+        if (blockId.startsWith("local-")) return localGps(blockId)
+        val remote = runCatching {
+            withTimeout(LOCATION_TIMEOUT_MS) {
+                supabase.from("gram_panchayats").select(
+                    columns = Columns.list("id", "block_id", "name")
+                ) {
+                    filter { eq("block_id", blockId) }
+                }.decodeList<GramPanchayatRow>().sortedBy { it.name }
+            }
+        }.getOrNull()
+        return remote ?: localGps(blockId)
+    }
+
+    suspend fun getVillages(gramPanchayatId: String): List<VillageRow> {
+        if (gramPanchayatId.startsWith("local-")) return localVillages(gramPanchayatId)
+        val remote = runCatching {
+            withTimeout(LOCATION_TIMEOUT_MS) {
+                supabase.from("villages").select(
+                    columns = Columns.list("id", "name", "block_id", "gram_panchayat_id")
+                ) {
+                    filter { eq("gram_panchayat_id", gramPanchayatId) }
+                }.decodeList<VillageRow>().sortedBy { it.name }
+            }
+        }.getOrNull()
+        return remote ?: localVillages(gramPanchayatId)
+    }
+
+    private fun localBlocks(): List<BlockRow> =
+        LocalLocationData.blocks.map {
+            BlockRow(LocalLocationData.blockId(it.name), "local-district-barmer", it.name)
         }
 
-    suspend fun getBlocks(districtId: String): List<BlockRow> =
-        withTimeout(LOCATION_TIMEOUT_MS) {
-            supabase.from("blocks").select(
-                columns = Columns.list("id", "district_id", "name")
-            ) {
-                filter { eq("district_id", districtId) }
-            }.decodeList<BlockRow>().sortedBy { it.name }
-        }
+    private fun localGps(blockId: String): List<GramPanchayatRow> {
+        val block = LocalLocationData.blocks.firstOrNull { LocalLocationData.blockId(it.name) == blockId }
+            ?: return emptyList()
+        return block.gps.map {
+            GramPanchayatRow(LocalLocationData.gpId(block.name, it.name), blockId, it.name)
+        }.sortedBy { it.name }
+    }
 
-    suspend fun getGramPanchayats(blockId: String): List<GramPanchayatRow> =
-        withTimeout(LOCATION_TIMEOUT_MS) {
-            supabase.from("gram_panchayats").select(
-                columns = Columns.list("id", "block_id", "name")
-            ) {
-                filter { eq("block_id", blockId) }
-            }.decodeList<GramPanchayatRow>().sortedBy { it.name }
-        }
-
-    suspend fun getVillages(gramPanchayatId: String): List<VillageRow> =
-        withTimeout(LOCATION_TIMEOUT_MS) {
-            supabase.from("villages").select(
-                columns = Columns.list("id", "name", "block_id", "gram_panchayat_id")
-            ) {
-                filter { eq("gram_panchayat_id", gramPanchayatId) }
-            }.decodeList<VillageRow>().sortedBy { it.name }
-        }
+    private fun localVillages(gpId: String): List<VillageRow> {
+        val match = LocalLocationData.blocks.asSequence()
+            .flatMap { block -> block.gps.asSequence().map { block to it } }
+            .firstOrNull { (block, gp) -> LocalLocationData.gpId(block.name, gp.name) == gpId }
+            ?: return emptyList()
+        val (block, gp) = match
+        return gp.villages.map {
+            VillageRow(
+                id = LocalLocationData.villageId(block.name, gp.name, it),
+                name = it,
+                block_id = LocalLocationData.blockId(block.name),
+                gram_panchayat_id = gpId
+            )
+        }.sortedBy { it.name }
+    }
 }
