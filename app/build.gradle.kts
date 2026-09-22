@@ -42,6 +42,7 @@ dependencies {
     // Supabase Kotlin client. 3.0.1 supports this project's Kotlin 2.0.21 setup.
     implementation(platform("io.github.jan-tennert.supabase:bom:3.0.1"))
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
+    implementation("io.github.jan-tennert.supabase:auth-kt")
     implementation("io.ktor:ktor-client-android:3.0.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")

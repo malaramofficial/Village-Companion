@@ -32,6 +32,30 @@ data class VillageRow(
     val gram_panchayat_id: String? = null
 )
 
+@Serializable
+data class SupabaseProviderRow(
+    val id: String,
+    val profile_id: String,
+    val service_id: String,
+    val village_id: String,
+    val phone: String,
+    val availability: String = "available_now",
+    val active: Boolean = true
+)
+
+@Serializable
+data class SupabaseProviderActiveUpdate(val active: Boolean)
+
+@Serializable
+data class SupabaseProviderWrite(
+    val profile_id: String,
+    val service_id: String,
+    val village_id: String,
+    val phone: String,
+    val availability: String = "available_now",
+    val active: Boolean = true
+)
+
 private const val LOCATION_TIMEOUT_MS = 2_500L
 
 /**
@@ -42,6 +66,57 @@ private const val LOCATION_TIMEOUT_MS = 2_500L
  * reachable and returns usable data.
  */
 object SupabaseRepository {
+    suspend fun getActiveProviders(serviceId: String, villageId: String): List<SupabaseProviderRow> =
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("providers").select(
+                columns = Columns.list(
+                    "id", "profile_id", "service_id", "village_id",
+                    "phone", "availability", "active"
+                )
+            ) {
+                filter {
+                    eq("service_id", serviceId)
+                    eq("village_id", villageId)
+                    eq("active", true)
+                }
+            }.decodeList<SupabaseProviderRow>()
+        }
+
+    suspend fun getMyProvider(profileId: String): SupabaseProviderRow? =
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("providers").select(
+                columns = Columns.list(
+                    "id", "profile_id", "service_id", "village_id",
+                    "phone", "availability", "active"
+                )
+            ) {
+                filter { eq("profile_id", profileId) }
+            }.decodeList<SupabaseProviderRow>().firstOrNull()
+        }
+
+    suspend fun createProvider(provider: SupabaseProviderWrite) {
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("providers").insert(provider)
+        }
+    }
+
+    suspend fun updateProvider(providerId: String, provider: SupabaseProviderWrite) {
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("providers").update(provider) {
+                filter { eq("id", providerId) }
+            }
+        }
+    }
+
+    suspend fun deactivateProvider(providerId: String) {
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("providers").update(SupabaseProviderActiveUpdate(false)) {
+                filter { eq("id", providerId) }
+            }
+        }
+    }
+
+
     suspend fun getActiveServices(): List<SupabaseServiceRow> =
         withTimeout(LOCATION_TIMEOUT_MS) {
             supabase.from("services").select(
@@ -93,6 +168,30 @@ object SupabaseRepository {
             }
         }.getOrNull()
         return remote?.takeIf { it.isNotEmpty() } ?: localGps(blockId)
+    }
+
+    suspend fun getActiveVillagesForAutoDetect(): List<VillageRow> {
+        val remote = runCatching {
+            withTimeout(LOCATION_TIMEOUT_MS) {
+                supabase.from("villages").select(
+                    columns = Columns.list("id", "name", "block_id", "gram_panchayat_id")
+                ) {
+                    filter { eq("active", true); eq("district", "Barmer") }
+                }.decodeList<VillageRow>().sortedBy { it.name }
+            }
+        }.getOrNull()
+        return remote?.takeIf { it.isNotEmpty() } ?: LocalLocationData.blocks.flatMap { block ->
+            block.gps.flatMap { gp ->
+                gp.villages.map { village ->
+                    VillageRow(
+                        id = LocalLocationData.villageId(block.name, gp.name, village),
+                        name = village,
+                        block_id = LocalLocationData.blockId(block.name),
+                        gram_panchayat_id = LocalLocationData.gpId(block.name, gp.name)
+                    )
+                }
+            }
+        }.sortedBy { it.name }
     }
 
     suspend fun getVillages(gramPanchayatId: String): List<VillageRow> {

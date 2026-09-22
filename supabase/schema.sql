@@ -54,6 +54,39 @@ alter table public.villages add column if not exists block_id uuid references pu
 alter table public.villages add column if not exists gram_panchayat_id uuid references public.gram_panchayats(id) on delete set null;
 alter table public.villages add column if not exists lgd_code text;
 
+-- Existing databases may use the legacy is_active name. Normalize it once so
+-- the canonical API contract is always active across location/services/providers.
+do $
+begin
+    if exists (select 1 from information_schema.columns where table_schema='public' and table_name='villages' and column_name='is_active')
+       and not exists (select 1 from information_schema.columns where table_schema='public' and table_name='villages' and column_name='active') then
+        alter table public.villages rename column is_active to active;
+    elsif exists (select 1 from information_schema.columns where table_schema='public' and table_name='villages' and column_name='is_active')
+       and exists (select 1 from information_schema.columns where table_schema='public' and table_name='villages' and column_name='active') then
+        update public.villages set active = coalesce(active, is_active);
+        alter table public.villages drop column is_active;
+    end if;
+
+    if exists (select 1 from information_schema.columns where table_schema='public' and table_name='services' and column_name='is_active')
+       and not exists (select 1 from information_schema.columns where table_schema='public' and table_name='services' and column_name='active') then
+        alter table public.services rename column is_active to active;
+    elsif exists (select 1 from information_schema.columns where table_schema='public' and table_name='services' and column_name='is_active')
+       and exists (select 1 from information_schema.columns where table_schema='public' and table_name='services' and column_name='active') then
+        update public.services set active = coalesce(active, is_active);
+        alter table public.services drop column is_active;
+    end if;
+
+    if exists (select 1 from information_schema.columns where table_schema='public' and table_name='providers' and column_name='is_active')
+       and not exists (select 1 from information_schema.columns where table_schema='public' and table_name='providers' and column_name='active') then
+        alter table public.providers rename column is_active to active;
+    elsif exists (select 1 from information_schema.columns where table_schema='public' and table_name='providers' and column_name='is_active')
+       and exists (select 1 from information_schema.columns where table_schema='public' and table_name='providers' and column_name='active') then
+        update public.providers set active = coalesce(active, is_active);
+        alter table public.providers drop column is_active;
+    end if;
+end;
+$;
+
 create index if not exists idx_blocks_district_id on public.blocks(district_id);
 create index if not exists idx_gram_panchayats_block_id on public.gram_panchayats(block_id);
 create index if not exists idx_villages_gram_panchayat_id on public.villages(gram_panchayat_id);
@@ -96,7 +129,8 @@ create index if not exists idx_reports_provider on public.reports(provider_id);
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
-as $$
+set search_path = pg_catalog
+as $
 begin
     new.updated_at = now();
     return new;
@@ -171,7 +205,7 @@ drop policy if exists "authenticated own profile select" on public.profiles;
 create policy "authenticated own profile select" on public.profiles for select to authenticated using (id = auth.uid());
 
 drop policy if exists "authenticated own profile insert" on public.profiles;
-create policy "authenticated own profile insert" on public.profiles for insert to authenticated with check (id = auth.uid());
+create policy "user insert own profile" on public.profiles for insert to authenticated with check (id = auth.uid() and role in ('customer', 'provider'));
 
 drop policy if exists "authenticated own profile update" on public.profiles;
 create policy "authenticated own profile update" on public.profiles for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
@@ -194,11 +228,22 @@ create policy "authenticated insert own reports" on public.reports for insert to
 drop policy if exists "authenticated read own reports" on public.reports;
 create policy "authenticated read own reports" on public.reports for select to authenticated using (reporter_id = auth.uid());
 
+-- handle_new_user is an internal Auth trigger target, not a public RPC.
+revoke execute on function public.handle_new_user() from public, anon, authenticated;
+
+-- Explicit Data API grants. RLS remains the row-level authorization boundary.
+grant usage on schema public to anon, authenticated;
+grant select on table public.districts, public.blocks, public.gram_panchayats, public.villages, public.services, public.providers to anon, authenticated;
+grant select, insert, update on table public.profiles to authenticated;
+grant select, insert, update, delete on table public.providers to authenticated;
+grant select, insert on table public.reports to authenticated;
+
 -- Prevent a normal client from assigning itself the admin role.
 create or replace function public.prevent_role_escalation()
 returns trigger
 language plpgsql
-as $$
+set search_path = pg_catalog
+as $
 begin
     if old.role = 'admin' then
         if new.role <> 'admin' then
