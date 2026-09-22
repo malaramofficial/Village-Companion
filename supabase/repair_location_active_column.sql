@@ -4,23 +4,27 @@
 
 begin;
 
--- Remove policies that reference the old/nonexistent column.
+-- Ensure the canonical column exists.
+alter table public.villages add column if not exists active boolean not null default true;
+
+-- Remove stale or incompatible policy definitions.
 drop policy if exists "public read active villages" on public.villages;
 
+-- Recreate policy using the canonical column.
 create policy "public read active villages"
 on public.villages
 for select
 to anon, authenticated
 using (active = true);
 
--- Ensure the Data API roles can read the public catalogue.
-grant usage on schema public to anon, authenticated;
-grant select on table public.villages to anon, authenticated;
-
--- Normalize any rows created by an older, incompatible migration.
+-- Normalize any rows created by an earlier migration using is_active.
 update public.villages
 set active = true
 where active is null;
+
+-- Keep Data API access working for public lookup tables.
+grant usage on schema public to anon, authenticated;
+grant select on table public.villages to anon, authenticated;
 
 notify pgrst, 'reload schema';
 
