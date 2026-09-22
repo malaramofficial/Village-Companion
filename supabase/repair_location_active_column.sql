@@ -1,30 +1,66 @@
--- Repair migration for the location hierarchy.
--- Run after schema.sql and location_hierarchy.sql.
--- The canonical column is public.villages.active (not is_active).
+-- Idempotent repair migration for the canonical active flag.
+-- Run after schema.sql when upgrading an existing database.
+-- Canonical column: active. Legacy column: is_active.
 
 begin;
 
--- Ensure the canonical column exists.
-alter table public.villages add column if not exists active boolean not null default true;
+do $$
+begin
+  if to_regclass('public.villages') is not null then
+    if exists (select 1 from information_schema.columns where table_schema='public' and table_name='villages' and column_name='is_active')
+       and not exists (select 1 from information_schema.columns where table_schema='public' and table_name='villages' and column_name='active') then
+      alter table public.villages rename column is_active to active;
+    elsif exists (select 1 from information_schema.columns where table_schema='public' and table_name='villages' and column_name='is_active')
+       and exists (select 1 from information_schema.columns where table_schema='public' and table_name='villages' and column_name='active') then
+      update public.villages set active = coalesce(active, is_active);
+      alter table public.villages drop column is_active;
+    end if;
+  end if;
 
--- Remove stale or incompatible policy definitions.
+  if to_regclass('public.services') is not null then
+    if exists (select 1 from information_schema.columns where table_schema='public' and table_name='services' and column_name='is_active')
+       and not exists (select 1 from information_schema.columns where table_schema='public' and table_name='services' and column_name='active') then
+      alter table public.services rename column is_active to active;
+    elsif exists (select 1 from information_schema.columns where table_schema='public' and table_name='services' and column_name='is_active')
+       and exists (select 1 from information_schema.columns where table_schema='public' and table_name='services' and column_name='active') then
+      update public.services set active = coalesce(active, is_active);
+      alter table public.services drop column is_active;
+    end if;
+  end if;
+
+  if to_regclass('public.providers') is not null then
+    if exists (select 1 from information_schema.columns where table_schema='public' and table_name='providers' and column_name='is_active')
+       and not exists (select 1 from information_schema.columns where table_schema='public' and table_name='providers' and column_name='active') then
+      alter table public.providers rename column is_active to active;
+    elsif exists (select 1 from information_schema.columns where table_schema='public' and table_name='providers' and column_name='is_active')
+       and exists (select 1 from information_schema.columns where table_schema='public' and table_name='providers' and column_name='active') then
+      update public.providers set active = coalesce(active, is_active);
+      alter table public.providers drop column is_active;
+    end if;
+  end if;
+end;
+$$;
+
 drop policy if exists "public read active villages" on public.villages;
-
--- Recreate policy using the canonical column.
 create policy "public read active villages"
-on public.villages
-for select
+on public.villages for select
 to anon, authenticated
 using (active = true);
 
--- Normalize any rows created by an earlier migration using is_active.
-update public.villages
-set active = true
-where active is null;
+drop policy if exists "public read active services" on public.services;
+create policy "public read active services"
+on public.services for select
+to anon, authenticated
+using (active = true);
 
--- Keep Data API access working for public lookup tables.
+drop policy if exists "public read active providers" on public.providers;
+create policy "public read active providers"
+on public.providers for select
+to anon, authenticated
+using (active = true);
+
 grant usage on schema public to anon, authenticated;
-grant select on table public.villages to anon, authenticated;
+grant select on table public.villages, public.services, public.providers to anon, authenticated;
 
 notify pgrst, 'reload schema';
 
