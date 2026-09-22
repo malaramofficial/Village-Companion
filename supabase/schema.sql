@@ -129,7 +129,8 @@ create index if not exists idx_reports_provider on public.reports(provider_id);
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
-as $$
+set search_path = pg_catalog
+as $
 begin
     new.updated_at = now();
     return new;
@@ -227,11 +228,22 @@ create policy "authenticated insert own reports" on public.reports for insert to
 drop policy if exists "authenticated read own reports" on public.reports;
 create policy "authenticated read own reports" on public.reports for select to authenticated using (reporter_id = auth.uid());
 
+-- handle_new_user is an internal Auth trigger target, not a public RPC.
+revoke execute on function public.handle_new_user() from public, anon, authenticated;
+
+-- Explicit Data API grants. RLS remains the row-level authorization boundary.
+grant usage on schema public to anon, authenticated;
+grant select on table public.districts, public.blocks, public.gram_panchayats, public.villages, public.services, public.providers to anon, authenticated;
+grant select, insert, update on table public.profiles to authenticated;
+grant select, insert, update, delete on table public.providers to authenticated;
+grant select, insert on table public.reports to authenticated;
+
 -- Prevent a normal client from assigning itself the admin role.
 create or replace function public.prevent_role_escalation()
 returns trigger
 language plpgsql
-as $$
+set search_path = pg_catalog
+as $
 begin
     if old.role = 'admin' then
         if new.role <> 'admin' then
