@@ -205,7 +205,7 @@ drop policy if exists "authenticated own profile select" on public.profiles;
 create policy "authenticated own profile select" on public.profiles for select to authenticated using (id = auth.uid());
 
 drop policy if exists "authenticated own profile insert" on public.profiles;
-create policy "authenticated own profile insert" on public.profiles for insert to authenticated with check (id = auth.uid());
+create policy "user insert own profile" on public.profiles for insert to authenticated with check (id = auth.uid() and role in ('customer', 'provider'));
 
 drop policy if exists "authenticated own profile update" on public.profiles;
 create policy "authenticated own profile update" on public.profiles for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
