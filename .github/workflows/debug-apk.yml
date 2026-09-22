@@ -43,4 +43,4 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-# Build verification trigger: production-readiness
+# Build verification trigger: main fresh run
