@@ -3,9 +3,16 @@ package com.malaramofficial.villagecompanion
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.location.Address
+import android.location.Geocoder
+import android.location.Location
+import android.location.LocationManager
+import android.os.CancellationSignal
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -46,6 +53,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -148,7 +161,7 @@ private fun HomeScreen(categories: List<Category>, onProvider: () -> Unit, onCat
                 Text("गाँव में क्या चाहिए?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text("Barmer जिले के गाँव में सेवा खोजें।")
                 Spacer(Modifier.height(10.dp)); Text("���� मुझे सेवा चाहिए", fontWeight = FontWeight.Bold)
-                Text("सेवा चुनें → पंचायत समिति → ग्राम पंचायत → गाँव")
+                Text("सेवा चुनें → आपकी लोकेशन अपने-आप पता होगी → उपलब्ध लोग देखें")
                 Spacer(Modifier.height(10.dp)); OutlinedButton(onClick = onProvider, Modifier.fillMaxWidth()) { Text("👨‍🔧 मैं सेवा देता हूँ") }
             }
         }
@@ -158,7 +171,7 @@ private fun HomeScreen(categories: List<Category>, onProvider: () -> Unit, onCat
             rowItems.forEach { c -> Card(Modifier.weight(1f).clickable { onCategory(c) }, shape = RoundedCornerShape(16.dp)) { Column(Modifier.padding(14.dp)) { Text(c.emoji, style = MaterialTheme.typography.headlineSmall); Text(c.title, fontWeight = FontWeight.Bold); if (c.subtitle.isNotBlank()) Text(c.subtitle) } } }
             if (rowItems.size == 1) Spacer(Modifier.weight(1f))
         } }
-        Text("सेवा चुनें → स्थान चुनें → उपलब्ध लोग देखें → सीधे संपर्क करें।")
+        Text("सेवा चुनें → लोकेशन अपने-आप पता होगी → उपलब्ध लोग देखें → सीधे संपर्क करें।")
     }
 }
 
@@ -183,59 +196,129 @@ private fun LocationDropdown(label: String, value: String, options: List<String>
     }
 }
 
-@Composable
-private fun LocationSelector(onVillageSelected: (VillageRow) -> Unit) {
-    var blocks by remember { mutableStateOf<List<BlockRow>>(emptyList()) }
-    var gps by remember { mutableStateOf<List<GramPanchayatRow>>(emptyList()) }
-    var villages by remember { mutableStateOf<List<VillageRow>>(emptyList()) }
-    var block by remember { mutableStateOf<BlockRow?>(null) }
-    var gp by remember { mutableStateOf<GramPanchayatRow?>(null) }
-    var village by remember { mutableStateOf<VillageRow?>(null) }
-    var loadingBlocks by remember { mutableStateOf(true) }
-    var loadingGps by remember { mutableStateOf(false) }
-    var loadingVillages by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf("") }
+private fun normalizeLocationText(value: String?): String = value.orEmpty()
+    .lowercase()
+    .replace("़", "")
+    .replace("\\u200c", "")
+    .replace("\\u200d", "")
+    .replace(" ", "")
+    .replace("-", "")
+    .replace("_", "")
+    .replace(",", "")
+    .replace(".", "")
 
-    LaunchedEffect(Unit) {
-        loadingBlocks = true
-        error = ""
-        runCatching {
-            val district = SupabaseRepository.getDistrict("Barmer") ?: error("Barmer जिला database में नहीं मिला")
-            SupabaseRepository.getBlocks(district.id)
-        }.onSuccess { blocks = it; loadingBlocks = false }
-            .onFailure { error = "स्थान लोड नहीं हो सका: ${it.message ?: "नेटवर्क समस्या"}"; loadingBlocks = false }
+private fun locationTextCandidates(address: Address): List<String> = listOfNotNull(
+    address.featureName,
+    address.subLocality,
+    address.locality,
+    address.subAdminArea,
+    address.adminArea
+).flatMap { listOf(it, it.removeSuffix(" Village"), it.removeSuffix(" village")) }
+
+private fun matchVillage(address: Address, villages: List<VillageRow>): VillageRow? {
+    val candidates = locationTextCandidates(address).map(::normalizeLocationText).filter { it.isNotBlank() }
+    return villages.firstOrNull { village ->
+        val name = normalizeLocationText(village.name)
+        name.isNotBlank() && candidates.any { candidate -> candidate == name || candidate.contains(name) || name.contains(candidate) }
+    }
+}
+
+private suspend fun currentLocation(context: Context): Location? = suspendCancellableCoroutine { cont ->
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    val provider = when {
+        manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+        manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+        else -> null
+    }
+    if (provider == null) { cont.resume(null); return@suspendCancellableCoroutine }
+    val last = runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+    if (last != null && System.currentTimeMillis() - last.time < 120_000L) {
+        cont.resume(last); return@suspendCancellableCoroutine
+    }
+    val signal = CancellationSignal()
+    cont.invokeOnCancellation { signal.cancel() }
+    runCatching {
+        manager.getCurrentLocation(provider, signal, ContextCompat.getMainExecutor(context)) { location ->
+            if (cont.isActive) cont.resume(location)
+        }
+    }.onFailure { if (cont.isActive) cont.resume(null) }
+}
+
+private suspend fun reverseGeocode(context: Context, location: Location): Address? = withContext(Dispatchers.IO) {
+    if (!Geocoder.isPresent()) return@withContext null
+    runCatching {
+        Geocoder(context).getFromLocation(location.latitude, location.longitude, 1)?.firstOrNull()
+    }.getOrNull()
+}
+
+@Composable
+private fun AutoLocationSelector(onVillageSelected: (VillageRow) -> Unit) {
+    val context = LocalContext.current
+    var selected by remember { mutableStateOf<VillageRow?>(null) }
+    var status by remember { mutableStateOf("आपकी लोकेशन खोजी जा रही है…") }
+    var addressText by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var villages by remember { mutableStateOf<List<VillageRow>>(emptyList()) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val granted = result[android.Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            result[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) status = "लोकेशन मिल रही है…" else status = "लोकेशन अनुमति चाहिए।"
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("स्थान चुनें", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text("📍 जिला: Barmer")
-        LocationDropdown("पंचायत समिति चुनें", block?.name.orEmpty(), blocks.map { it.name }, loading = loadingBlocks) { selected ->
-            block = blocks.firstOrNull { it.name == selected }
-            gp = null; village = null; gps = emptyList(); villages = emptyList(); error = ""
+    suspend fun detect() {
+        loading = true
+        status = "आपकी लोकेशन खोजी जा रही है…"
+        addressText = ""
+        val hasPermission = ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) {
+            loading = false
+            permissionLauncher.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+            return
         }
-        LocationDropdown("ग्राम पंचायत चुनें", gp?.name.orEmpty(), gps.map { it.name }, enabled = block != null, loading = loadingGps) { selected ->
-            gp = gps.firstOrNull { it.name == selected }
-            village = null; villages = emptyList(); error = ""
+        val allVillages = runCatching { SupabaseRepository.getActiveVillagesForAutoDetect() }.getOrElse {
+            loading = false
+            status = "गाँवों की सूची नहीं मिल सकी। इंटरनेट जाँचें।"
+            return
         }
-        LocationDropdown("गाँव का नाम चुनें", village?.name.orEmpty(), villages.map { it.name }, enabled = gp != null, loading = loadingVillages) { selected ->
-            village = villages.firstOrNull { it.name == selected }
-            village?.let(onVillageSelected)
+        villages = allVillages
+        val location = currentLocation(context)
+        if (location == null) {
+            loading = false
+            status = "GPS लोकेशन नहीं मिली। GPS चालू करके फिर कोशिश करें।"
+            return
         }
-        LaunchedEffect(block?.id) {
-            if (block == null) return@LaunchedEffect
-            loadingGps = true
-            runCatching { SupabaseRepository.getGramPanchayats(block!!.id) }
-                .onSuccess { gps = it; loadingGps = false }
-                .onFailure { error = "ग्राम पंचायत लोड नहीं हो सकी: ${it.message ?: "नेटवर्क समस्या"}"; loadingGps = false }
+        val address = reverseGeocode(context, location)
+        addressText = address?.getAddressLine(0).orEmpty()
+        val match = address?.let { matchVillage(it, allVillages) }
+        if (match != null) {
+            selected = match
+            onVillageSelected(match)
+            status = "✓ गाँव अपने-आप चुन लिया गया"
+        } else {
+            status = "आपकी लोकेशन मिली, लेकिन गाँव का नाम database से match नहीं हुआ।"
         }
-        LaunchedEffect(gp?.id) {
-            if (gp == null) return@LaunchedEffect
-            loadingVillages = true
-            runCatching { SupabaseRepository.getVillages(gp!!.id) }
-                .onSuccess { villages = it; loadingVillages = false }
-                .onFailure { error = "गाँवों की सूची लोड नहीं हो सकी: ${it.message ?: "नेटवर्क समस्या"}"; loadingVillages = false }
+        loading = false
+    }
+
+    LaunchedEffect(Unit) { detect() }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("📍 आपका गाँव", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (loading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                Text(selected?.name ?: status, fontWeight = FontWeight.SemiBold)
+                if (addressText.isNotBlank()) Text(addressText, style = MaterialTheme.typography.bodySmall)
+                if (selected != null) Text("✓ स्थान अपने-आप चुना गया", color = MaterialTheme.colorScheme.primary)
+                OutlinedButton(onClick = { kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) { detect() } }, enabled = !loading, Modifier.fillMaxWidth()) {
+                    Text("📍 मेरी लोकेशन फिर से खोजें")
+                }
+            }
         }
-        if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
     }
 }
 
@@ -251,9 +334,9 @@ private fun ProviderRegistrationScreen(categories: List<Category>, onBack: () ->
     var error by remember { mutableStateOf("") }; var saved by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextButton(onClick = onBack) { Text("← वापस") }; Text("अपनी सेवा दर्ज करें", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("Barmer → पंचायत समिति → ग्राम पंचायत → गाँव चुनें।")
+        Text("आपका गाँव GPS से अपने-आप चुना जाएगा।")
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("नाम") }, singleLine = true)
-        LocationSelector { selectedVillage = it; village = it.name }
+        AutoLocationSelector { selectedVillage = it; village = it.name }
         OutlinedTextField(phone, { phone = it.filter(Char::isDigit).take(10) }, Modifier.fillMaxWidth(), label = { Text("मोबाइल नंबर") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
         Text("सेवा चुनें", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         categories.forEach { c -> OutlinedButton(onClick = { service = c.title }, Modifier.fillMaxWidth()) { Text(if (service == c.title) "✓ ${c.emoji} ${c.title}" else "${c.emoji} ${c.title}") } }
@@ -296,7 +379,7 @@ private fun ServiceResultsScreen(category: Category, categories: List<Category>,
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextButton(onClick = onBack) { Text("← वापस") }
         Text(category.emoji+" "+category.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        LocationSelector { selectedVillage = it }
+        AutoLocationSelector { selectedVillage = it }
         when {
             selectedVillage == null -> Text("पहले गाँव चुनें।")
             loading -> CircularProgressIndicator()
