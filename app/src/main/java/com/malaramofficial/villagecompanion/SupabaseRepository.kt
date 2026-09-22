@@ -170,6 +170,15 @@ object SupabaseRepository {
         return remote?.takeIf { it.isNotEmpty() } ?: localGps(blockId)
     }
 
+    suspend fun getActiveVillagesForAutoDetect(): List<VillageRow> =
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("villages").select(
+                columns = Columns.list("id", "name", "block_id", "gram_panchayat_id")
+            ) {
+                filter { eq("active", true) }
+            }.decodeList<VillageRow>().sortedBy { it.name }
+        }
+
     suspend fun getVillages(gramPanchayatId: String): List<VillageRow> {
         if (gramPanchayatId.startsWith("local-")) return localVillages(gramPanchayatId)
         val remote = runCatching {
