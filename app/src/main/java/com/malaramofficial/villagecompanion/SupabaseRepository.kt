@@ -170,14 +170,29 @@ object SupabaseRepository {
         return remote?.takeIf { it.isNotEmpty() } ?: localGps(blockId)
     }
 
-    suspend fun getActiveVillagesForAutoDetect(): List<VillageRow> =
-        withTimeout(LOCATION_TIMEOUT_MS) {
-            supabase.from("villages").select(
-                columns = Columns.list("id", "name", "block_id", "gram_panchayat_id")
-            ) {
-                filter { eq("active", true); eq("district", "Barmer") }
-            }.decodeList<VillageRow>().sortedBy { it.name }
-        }
+    suspend fun getActiveVillagesForAutoDetect(): List<VillageRow> {
+        val remote = runCatching {
+            withTimeout(LOCATION_TIMEOUT_MS) {
+                supabase.from("villages").select(
+                    columns = Columns.list("id", "name", "block_id", "gram_panchayat_id")
+                ) {
+                    filter { eq("active", true); eq("district", "Barmer") }
+                }.decodeList<VillageRow>().sortedBy { it.name }
+            }
+        }.getOrNull()
+        return remote?.takeIf { it.isNotEmpty() } ?: LocalLocationData.blocks.flatMap { block ->
+            block.gps.flatMap { gp ->
+                gp.villages.map { village ->
+                    VillageRow(
+                        id = LocalLocationData.villageId(block.name, gp.name, village),
+                        name = village,
+                        block_id = LocalLocationData.blockId(block.name),
+                        gram_panchayat_id = LocalLocationData.gpId(block.name, gp.name)
+                    )
+                }
+            }
+        }.sortedBy { it.name }
+    }
 
     suspend fun getVillages(gramPanchayatId: String): List<VillageRow> {
         if (gramPanchayatId.startsWith("local-")) return localVillages(gramPanchayatId)
