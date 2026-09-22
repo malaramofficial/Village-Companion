@@ -175,7 +175,7 @@ object SupabaseRepository {
             supabase.from("villages").select(
                 columns = Columns.list("id", "name", "block_id", "gram_panchayat_id")
             ) {
-                filter { eq("active", true) }
+                filter { eq("active", true); eq("district", "Barmer") }
             }.decodeList<VillageRow>().sortedBy { it.name }
         }
 
