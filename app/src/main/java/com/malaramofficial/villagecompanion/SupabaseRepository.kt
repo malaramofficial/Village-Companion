@@ -32,6 +32,27 @@ data class VillageRow(
     val gram_panchayat_id: String? = null
 )
 
+@Serializable
+data class SupabaseProviderRow(
+    val id: String,
+    val profile_id: String,
+    val service_id: String,
+    val village_id: String,
+    val phone: String,
+    val availability: String = "available_now",
+    val active: Boolean = true
+)
+
+@Serializable
+data class SupabaseProviderWrite(
+    val profile_id: String,
+    val service_id: String,
+    val village_id: String,
+    val phone: String,
+    val availability: String = "available_now",
+    val active: Boolean = true
+)
+
 private const val LOCATION_TIMEOUT_MS = 2_500L
 
 /**
@@ -42,6 +63,57 @@ private const val LOCATION_TIMEOUT_MS = 2_500L
  * reachable and returns usable data.
  */
 object SupabaseRepository {
+    suspend fun getActiveProviders(serviceId: String, villageId: String): List<SupabaseProviderRow> =
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("providers").select(
+                columns = Columns.list(
+                    "id", "profile_id", "service_id", "village_id",
+                    "phone", "availability", "active"
+                )
+            ) {
+                filter {
+                    eq("service_id", serviceId)
+                    eq("village_id", villageId)
+                    eq("active", true)
+                }
+            }.decodeList<SupabaseProviderRow>()
+        }
+
+    suspend fun getMyProvider(profileId: String): SupabaseProviderRow? =
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("providers").select(
+                columns = Columns.list(
+                    "id", "profile_id", "service_id", "village_id",
+                    "phone", "availability", "active"
+                )
+            ) {
+                filter { eq("profile_id", profileId) }
+            }.decodeList<SupabaseProviderRow>().firstOrNull()
+        }
+
+    suspend fun createProvider(provider: SupabaseProviderWrite) {
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("providers").insert(provider)
+        }
+    }
+
+    suspend fun updateProvider(providerId: String, provider: SupabaseProviderWrite) {
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("providers").update(provider) {
+                filter { eq("id", providerId) }
+            }
+        }
+    }
+
+    suspend fun deactivateProvider(providerId: String) {
+        withTimeout(LOCATION_TIMEOUT_MS) {
+            supabase.from("providers").update(mapOf("active" to false)) {
+                filter { eq("id", providerId) }
+            }
+        }
+    }
+
+
     suspend fun getActiveServices(): List<SupabaseServiceRow> =
         withTimeout(LOCATION_TIMEOUT_MS) {
             supabase.from("services").select(
