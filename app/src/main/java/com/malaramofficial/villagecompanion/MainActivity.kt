@@ -60,18 +60,19 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class Category(val emoji: String, val title: String, val subtitle: String)
+private data class Category(val id: String? = null, val emoji: String, val title: String, val subtitle: String)
 private data class Provider(val name: String, val village: String, val service: String, val availability: String, val phone: String? = null)
 
 private val fallbackCategories = listOf(
-    Category("🌾", "कृषि मजदूर", "खेत का काम"), Category("🚜", "Tractor / मशीन", "किराये पर मशीन"),
-    Category("⚡", "Electrician", "बिजली का काम"), Category("⚙️", "Motor / Pump", "मरम्मत सेवा"),
-    Category("🚰", "Plumber", "पानी की लाइन"), Category("🧱", "Mason / Welding", "निर्माण काम")
+    Category(emoji = "🌾", title = "कृषि मजदूर", subtitle = "खेत का काम"), Category(emoji = "🚜", title = "Tractor / मशीन", subtitle = "किराये पर मशीन"),
+    Category(emoji = "⚡", title = "Electrician", subtitle = "बिजली का काम"), Category(emoji = "⚙️", title = "Motor / Pump", subtitle = "मरम्मत सेवा"),
+    Category(emoji = "🚰", title = "Plumber", subtitle = "पानी की लाइन"), Category(emoji = "🧱", title = "Mason / Welding", subtitle = "निर्माण काम")
 )
 
 private suspend fun loadCategories(): List<Category> = runCatching {
     SupabaseRepository.getActiveServices().map { service ->
         Category(
+            id = service.id,
             emoji = service.emoji ?: "📌",
             title = service.name,
             subtitle = service.subtitle ?: "सेवा"
@@ -276,22 +277,44 @@ private fun ProviderRegistrationScreen(categories: List<Category>, onBack: () ->
 
 @Composable
 private fun ServiceResultsScreen(category: Category, categories: List<Category>, onBack: () -> Unit) {
-    val context = LocalContext.current; val saved = remember { loadSavedProvider(context) }
+    val context = LocalContext.current
     var selectedVillage by remember { mutableStateOf<VillageRow?>(null) }
-    val demoVillage = selectedVillage?.name ?: saved?.village
-    val demo = listOf(
-        Provider("टेस्ट सेवा प्रदाता", demoVillage ?: "", category.title, "अभी उपलब्ध", "9999999999"),
-        Provider("आपकी सेवा", demoVillage ?: "", category.title, "अभी उपलब्ध", "9876543210"),
-        Provider("स्थानीय विशेषज्ञ", demoVillage ?: "", category.title, "अभी उपलब्ध", "9812345678")
-    )
+    var providers by remember { mutableStateOf<List<SupabaseProviderRow>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+
+    LaunchedEffect(selectedVillage?.id, category.id) {
+        val serviceId = category.id
+        val villageId = selectedVillage?.id
+        if (serviceId == null || villageId == null) { providers = emptyList(); return@LaunchedEffect }
+        loading = true; error = ""
+        runCatching { SupabaseRepository.getActiveProviders(serviceId, villageId) }
+            .onSuccess { providers = it; loading = false }
+            .onFailure { providers = emptyList(); error = "सेवा प्रदाता लोड नहीं हो सके: "+(it.message ?: "नेटवर्क समस्या"); loading = false }
+    }
+
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        TextButton(onClick = onBack) { Text("← वापस") }; Text("${category.emoji} ${category.title}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        TextButton(onClick = onBack) { Text("← वापस") }
+        Text(category.emoji+" "+category.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         LocationSelector { selectedVillage = it }
-        val visible = if (selectedVillage == null) emptyList() else demo.filter { it.service == category.title && it.village == selectedVillage!!.name }
-        if (selectedVillage != null && visible.isEmpty()) Text("इस गाँव में अभी कोई प्रोफाइल नहीं मिली।")
-        visible.forEach { p -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(p.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text("📍 ${p.village}"); Text(p.availability)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = { dial(context, p.phone) }, Modifier.weight(1f)) { Text("📞 Call") }; OutlinedButton(onClick = { whatsapp(context, p.phone, p.name) }, Modifier.weight(1f)) { Text("💬 WhatsApp") } }
-        } } }
+        when {
+            selectedVillage == null -> Text("पहले गाँव चुनें।")
+            loading -> CircularProgressIndicator()
+            error.isNotBlank() -> Text(error, color = MaterialTheme.colorScheme.error)
+            providers.isEmpty() -> Text("इस गाँव में अभी कोई सक्रिय सेवा प्रदाता नहीं मिला।")
+            else -> providers.forEach { provider ->
+                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("सेवा प्रदाता", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("📍 "+selectedVillage?.name.orEmpty())
+                        Text(when (provider.availability) { "available_now" -> "🟢 अभी उपलब्ध"; "available_today" -> "🟡 आज उपलब्ध"; else -> "⚪ अभी उपलब्ध नहीं" })
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { dial(context, provider.phone) }, Modifier.weight(1f)) { Text("📞 Call") }
+                            OutlinedButton(onClick = { whatsapp(context, provider.phone, "सेवा प्रदाता") }, Modifier.weight(1f)) { Text("💬 WhatsApp") }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
