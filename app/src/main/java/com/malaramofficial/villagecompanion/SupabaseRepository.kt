@@ -44,6 +44,9 @@ data class SupabaseProviderRow(
 )
 
 @Serializable
+data class SupabaseProviderActiveUpdate(val active: Boolean)
+
+@Serializable
 data class SupabaseProviderWrite(
     val profile_id: String,
     val service_id: String,
@@ -107,7 +110,7 @@ object SupabaseRepository {
 
     suspend fun deactivateProvider(providerId: String) {
         withTimeout(LOCATION_TIMEOUT_MS) {
-            supabase.from("providers").update(mapOf("active" to false)) {
+            supabase.from("providers").update(SupabaseProviderActiveUpdate(false)) {
                 filter { eq("id", providerId) }
             }
         }
