@@ -1,5 +1,6 @@
 package com.malaramofficial.villagecompanion
 
+import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 
@@ -20,4 +21,5 @@ val supabase = createSupabaseClient(
     supabaseKey = SupabaseConfig.PUBLISHABLE_KEY
 ) {
     install(Postgrest)
+    install(Auth)
 }
