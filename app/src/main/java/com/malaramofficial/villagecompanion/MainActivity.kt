@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -51,7 +52,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.KeyboardOptions
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,11 +63,21 @@ class MainActivity : ComponentActivity() {
 private data class Category(val emoji: String, val title: String, val subtitle: String)
 private data class Provider(val name: String, val village: String, val service: String, val availability: String, val phone: String? = null)
 
-private val categories = listOf(
+private val fallbackCategories = listOf(
     Category("🌾", "कृषि मजदूर", "खेत का काम"), Category("🚜", "Tractor / मशीन", "किराये पर मशीन"),
     Category("⚡", "Electrician", "बिजली का काम"), Category("⚙️", "Motor / Pump", "मरम्मत सेवा"),
     Category("🚰", "Plumber", "पानी की लाइन"), Category("🧱", "Mason / Welding", "निर्माण काम")
 )
+
+private suspend fun loadCategories(): List<Category> = runCatching {
+    SupabaseRepository.getActiveServices().map { service ->
+        Category(
+            emoji = service.emoji ?: "📌",
+            title = service.name,
+            subtitle = service.subtitle ?: "सेवा"
+        )
+    }
+}.getOrElse { fallbackCategories }
 
 private const val PREFS = "village_companion_provider"
 
@@ -109,34 +119,42 @@ private fun whatsapp(context: Context, phone: String?, name: String) {
 fun VillageCompanionApp() {
     var screen by remember { mutableStateOf("home") }
     var selected by remember { mutableStateOf<Category?>(null) }
+    var categories by remember { mutableStateOf<List<Category>>(fallbackCategories) }
+
+    LaunchedEffect(Unit) {
+        categories = loadCategories()
+    }
+
     MaterialTheme { Surface(Modifier.fillMaxSize()) {
         when (screen) {
-            "provider" -> ProviderRegistrationScreen({ screen = "home" }, { screen = "home" })
-            "results" -> selected?.let { ServiceResultsScreen(it) { screen = "home" } } ?: HomeScreen({ screen = "provider" }) { selected = it; screen = "results" }
-            else -> HomeScreen({ screen = "provider" }) { selected = it; screen = "results" }
+            "provider" -> ProviderRegistrationScreen(categories = categories, onBack = { screen = "home" }, onSaved = { screen = "home" })
+            "results" -> selected?.let { ServiceResultsScreen(category = it, categories = categories, onBack = { screen = "home" }) } ?: HomeScreen(categories = categories, onProvider = { screen = "provider" }) { selected = it; screen = "results" }
+            else -> HomeScreen(categories = categories, onProvider = { screen = "provider" }) { selected = it; screen = "results" }
         }
     } }
 }
 
 @Composable
-private fun HomeScreen(onProvider: () -> Unit, onCategory: (Category) -> Unit) {
+private fun HomeScreen(categories: List<Category>, onProvider: () -> Unit, onCategory: (Category) -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(48.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Text("🌾") }
-            Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text("Village Companion", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text("गाँव साथी • काम और सेवा") }
+            Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text("Village Companion", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text("गाँव में सेवा ढूँढें") }
         }
+
         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
             Column(Modifier.padding(18.dp)) {
                 Text("गाँव में क्या चाहिए?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text("Barmer जिले के गाँव में सेवा खोजें।")
-                Spacer(Modifier.height(10.dp)); Text("🙋 मुझे सेवा चाहिए", fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(10.dp)); Text("���� मुझे सेवा चाहिए", fontWeight = FontWeight.Bold)
                 Text("सेवा चुनें → पंचायत समिति → ग्राम पंचायत → गाँव")
                 Spacer(Modifier.height(10.dp)); OutlinedButton(onClick = onProvider, Modifier.fillMaxWidth()) { Text("👨‍🔧 मैं सेवा देता हूँ") }
             }
         }
+
         Text("लोकप्रिय सेवाएँ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         categories.chunked(2).forEach { rowItems -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            rowItems.forEach { c -> Card(Modifier.weight(1f).clickable { onCategory(c) }, shape = RoundedCornerShape(16.dp)) { Column(Modifier.padding(14.dp)) { Text(c.emoji, style = MaterialTheme.typography.headlineSmall); Spacer(Modifier.height(6.dp)); Text(c.title, fontWeight = FontWeight.SemiBold); Text(c.subtitle, style = MaterialTheme.typography.bodySmall) } } }
+            rowItems.forEach { c -> Card(Modifier.weight(1f).clickable { onCategory(c) }, shape = RoundedCornerShape(16.dp)) { Column(Modifier.padding(14.dp)) { Text(c.emoji, style = MaterialTheme.typography.headlineSmall); Text(c.title, fontWeight = FontWeight.Bold); if (c.subtitle.isNotBlank()) Text(c.subtitle) } } }
             if (rowItems.size == 1) Spacer(Modifier.weight(1f))
         } }
         Text("सेवा चुनें → स्थान चुनें → उपलब्ध लोग देखें → सीधे संपर्क करें।")
@@ -221,12 +239,12 @@ private fun LocationSelector(onVillageSelected: (VillageRow) -> Unit) {
 }
 
 @Composable
-private fun ProviderRegistrationScreen(onBack: () -> Unit, onSaved: () -> Unit) {
+private fun ProviderRegistrationScreen(categories: List<Category>, onBack: () -> Unit, onSaved: () -> Unit) {
     val context = LocalContext.current; val existing = remember { loadSavedProvider(context) }
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var village by remember { mutableStateOf(existing?.village.orEmpty()) }
     var phone by remember { mutableStateOf(existing?.phone.orEmpty()) }
-    var service by remember { mutableStateOf(existing?.service ?: categories.first().title) }
+    var service by remember { mutableStateOf(existing?.service ?: categories.firstOrNull()?.title ?: "कृषि मजदूर") }
     var available by remember { mutableStateOf(existing?.availability != "अभी उपलब्ध नहीं") }
     var selectedVillage by remember { mutableStateOf<VillageRow?>(null) }
     var error by remember { mutableStateOf("") }; var saved by remember { mutableStateOf(false) }
@@ -240,17 +258,32 @@ private fun ProviderRegistrationScreen(onBack: () -> Unit, onSaved: () -> Unit) 
         categories.forEach { c -> OutlinedButton(onClick = { service = c.title }, Modifier.fillMaxWidth()) { Text(if (service == c.title) "✓ ${c.emoji} ${c.title}" else "${c.emoji} ${c.title}") } }
         OutlinedButton(onClick = { available = !available }, Modifier.fillMaxWidth()) { Text(if (available) "🟢 अभी उपलब्ध" else "⚪ अभी उपलब्ध नहीं") }
         if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
-        if (!saved) Button(onClick = { error = when { name.isBlank() -> "नाम भरें।"; selectedVillage == null && village.isBlank() -> "पहले गाँव चुनें।"; phone.length != 10 -> "10 अंकों का मोबाइल नंबर भरें।"; else -> "" }; if (error.isBlank()) { saveProvider(context, Provider(name.trim(), village, service, if (available) "अभी उपलब्ध" else "अभी उपलब्ध नहीं", phone)); saved = true } }, Modifier.fillMaxWidth()) { Text("प्रोफाइल सेव करें") }
+        if (!saved) Button(onClick = {
+            error = when {
+                name.isBlank() -> "नाम भरें।"
+                selectedVillage == null && village.isBlank() -> "पहले गाँव चुनें।"
+                phone.length != 10 -> "मोबाइल नंबर 10 अंकों का होना चाहिए।"
+                else -> ""
+            }
+            if (error.isBlank()) {
+                saveProvider(context, Provider(name.trim(), village.ifBlank { selectedVillage?.name.orEmpty() }, service, if (available) "अभी उपलब्ध" else "अभी उपलब्ध नहीं", phone))
+                saved = true
+            }
+        }, Modifier.fillMaxWidth()) { Text("प्रोफाइल सेव करें") }
         if (saved) { Text("✓ प्रोफाइल सेव हो गई।"); OutlinedButton(onClick = onSaved, Modifier.fillMaxWidth()) { Text("होम पर जाएँ") } }
     }
 }
 
 @Composable
-private fun ServiceResultsScreen(category: Category, onBack: () -> Unit) {
+private fun ServiceResultsScreen(category: Category, categories: List<Category>, onBack: () -> Unit) {
     val context = LocalContext.current; val saved = remember { loadSavedProvider(context) }
     var selectedVillage by remember { mutableStateOf<VillageRow?>(null) }
     val demoVillage = selectedVillage?.name ?: saved?.village
-    val demo = listOf(Provider("टेस्ट सेवा प्रदाता", demoVillage ?: "", category.title, "अभी उपलब्ध", "9999999999"), Provider("आपकी प्रोफाइल", saved?.village ?: "", saved?.service ?: category.title, saved?.availability ?: "अभी उपलब्ध", saved?.phone))
+    val demo = listOf(
+        Provider("टेस्ट सेवा प्रदाता", demoVillage ?: "", category.title, "अभी उपलब्ध", "9999999999"),
+        Provider("आपकी सेवा", demoVillage ?: "", category.title, "अभी उपलब्ध", "9876543210"),
+        Provider("स्थानीय विशेषज्ञ", demoVillage ?: "", category.title, "अभी उपलब्ध", "9812345678")
+    )
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextButton(onClick = onBack) { Text("← वापस") }; Text("${category.emoji} ${category.title}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         LocationSelector { selectedVillage = it }
@@ -258,7 +291,7 @@ private fun ServiceResultsScreen(category: Category, onBack: () -> Unit) {
         if (selectedVillage != null && visible.isEmpty()) Text("इस गाँव में अभी कोई प्रोफाइल नहीं मिली।")
         visible.forEach { p -> Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(p.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text("📍 ${p.village}"); Text(p.availability)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = { dial(context, p.phone) }, Modifier.weight(1f)) { Text("📞 Call") }; OutlinedButton(onClick = { whatsapp(context, p.phone, p.name) }, Modifier.weight(1f)) { Text("WhatsApp") } }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedButton(onClick = { dial(context, p.phone) }, Modifier.weight(1f)) { Text("📞 Call") }; OutlinedButton(onClick = { whatsapp(context, p.phone, p.name) }, Modifier.weight(1f)) { Text("💬 WhatsApp") } }
         } } }
     }
 }
