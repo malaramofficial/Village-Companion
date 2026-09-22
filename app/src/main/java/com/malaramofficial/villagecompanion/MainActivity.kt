@@ -8,6 +8,7 @@ import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
 import android.os.CancellationSignal
+import android.os.Build
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -52,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
@@ -237,11 +239,15 @@ private suspend fun currentLocation(context: Context): Location? = suspendCancel
     }
     val signal = CancellationSignal()
     cont.invokeOnCancellation { signal.cancel() }
-    runCatching {
-        manager.getCurrentLocation(provider, signal, ContextCompat.getMainExecutor(context)) { location ->
-            if (cont.isActive) cont.resume(location)
-        }
-    }.onFailure { if (cont.isActive) cont.resume(null) }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        runCatching {
+            manager.getCurrentLocation(provider, signal, ContextCompat.getMainExecutor(context)) { location ->
+                if (cont.isActive) cont.resume(location)
+            }
+        }.onFailure { if (cont.isActive) cont.resume(null) }
+    } else {
+        if (cont.isActive) cont.resume(last)
+    }
 }
 
 private suspend fun reverseGeocode(context: Context, location: Location): Address? = withContext(Dispatchers.IO) {
@@ -254,6 +260,7 @@ private suspend fun reverseGeocode(context: Context, location: Location): Addres
 @Composable
 private fun AutoLocationSelector(onVillageSelected: (VillageRow) -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var selected by remember { mutableStateOf<VillageRow?>(null) }
     var status by remember { mutableStateOf("आपकी लोकेशन खोजी जा रही है…") }
     var addressText by remember { mutableStateOf("") }
@@ -265,7 +272,7 @@ private fun AutoLocationSelector(onVillageSelected: (VillageRow) -> Unit) {
     ) { result ->
         val granted = result[android.Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             result[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if (granted) status = "लोकेशन मिल रही है…" else status = "लोकेशन अनुमति चाहिए।"
+        if (granted) scope.launch { detect() } else status = "लोकेशन अनुमति चाहिए।"
     }
 
     suspend fun detect() {
@@ -314,7 +321,7 @@ private fun AutoLocationSelector(onVillageSelected: (VillageRow) -> Unit) {
                 Text(selected?.name ?: status, fontWeight = FontWeight.SemiBold)
                 if (addressText.isNotBlank()) Text(addressText, style = MaterialTheme.typography.bodySmall)
                 if (selected != null) Text("✓ स्थान अपने-आप चुना गया", color = MaterialTheme.colorScheme.primary)
-                OutlinedButton(onClick = { kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) { detect() } }, enabled = !loading, Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { scope.launch { detect() } }, enabled = !loading, Modifier.fillMaxWidth()) {
                     Text("📍 मेरी लोकेशन फिर से खोजें")
                 }
             }
